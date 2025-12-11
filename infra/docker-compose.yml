@@ -1,18 +1,50 @@
-version: "3.9"
-
 services:
-  postgres:
-    image: postgres:15
-    container_name: diploma_postgres
+  db:
+    image: postgres:16-alpine
+    container_name: etl_db
     environment:
-      POSTGRES_USER: cinema
-      POSTGRES_PASSWORD: cinema
-      POSTGRES_DB: cinema
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./postgres/init:/docker-entrypoint-initdb.d
+      POSTGRES_DB: etl_demo
+      POSTGRES_USER: etl_user
+      POSTGRES_PASSWORD: etl_password
     ports:
-      - "15432:5432"
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    networks:
+      - etl_net
+
+  etl_api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: etl_api
+    env_file:
+      - ../.env
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
+    networks:
+      - etl_net
+
+  # Заглушка под будущий Runner (пока можно не запускать)
+  etl_runner:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: etl_runner
+    env_file:
+      - ../.env
+    depends_on:
+      - db
+    command: ["python", "-m", "src.runner.main"]
+    networks:
+      - etl_net
 
 volumes:
-  pgdata:
+  db_data:
+
+networks:
+  etl_net:
+    driver: bridge

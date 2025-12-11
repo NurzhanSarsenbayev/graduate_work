@@ -39,6 +39,7 @@ docker-compose.override.yml
 # Local configs / secrets
 .env
 .env.*
+!.env.sample
 *.local
 
 # Build/Dist
