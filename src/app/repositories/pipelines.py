@@ -1,116 +1,102 @@
 from __future__ import annotations
 
-from typing import Sequence, Optional, TYPE_CHECKING
-from uuid import uuid4
+from typing import Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from uuid import uuid4
 
 from src.app.models import EtlPipeline, EtlRun
-
-if TYPE_CHECKING:
-    # Чтобы не ловить циклический импорт в рантайме
-    from src.app.api.pipelines import PipelineCreate
+from src.app.core.exceptions import PipelineNotFoundError
 
 
-ALLOWED_TARGET_TABLES = {
-    "analytics.film_dim",
-    "analytics.film_rating_agg",
-}
+class SQLPipelinesRepository:
+    """Репозиторий для работы с пайплайнами и запусками.
 
-
-async def list_pipelines(session: AsyncSession) -> Sequence[EtlPipeline]:
-    """Вернуть все пайплайны (пока без пагинации/фильтров)."""
-    stmt = select(EtlPipeline).order_by(EtlPipeline.name)
-    result = await session.execute(stmt)
-    return result.scalars().all()
-
-
-async def get_pipeline(session: AsyncSession, pipeline_id: str) -> Optional[EtlPipeline]:
-    """Вернуть один пайплайн по id или None."""
-    stmt = select(EtlPipeline).where(EtlPipeline.id == pipeline_id)
-    result = await session.execute(stmt)
-    return result.scalar_one_or_none()
-
-
-async def create_pipeline(session: AsyncSession, payload: "PipelineCreate") -> EtlPipeline:
-    """Создать новый ETL-пайплайн (без задач, только основной конфиг)."""
-
-    if payload.target_table not in ALLOWED_TARGET_TABLES:
-        raise ValueError(f"target_table '{payload.target_table}' is not allowed")
-
-    # id можем не задавать (gen_random_uuid в БД),
-    # но для наглядности сгенерируем сами
-    pipeline = EtlPipeline(
-        id=str(uuid4()),
-        name=payload.name,
-        description=payload.description,
-        type=payload.type,
-        mode=payload.mode,
-        enabled=payload.enabled,
-        batch_size=payload.batch_size,
-        target_table=payload.target_table,
-        source_query=payload.source_query,
-        # incremental_key пока не используем
-    )
-
-    session.add(pipeline)
-    await session.commit()
-    await session.refresh(pipeline)
-
-    return pipeline
-
-async def update_pipeline_status(
-    session: AsyncSession,
-    pipeline_id: str,
-    new_status: str,
-) -> Optional[EtlPipeline]:
-    """Обновить статус пайплайна без лишней логики."""
-
-    pipeline = await get_pipeline(session, pipeline_id)
-    if pipeline is None:
-        return None
-
-    pipeline.status = new_status
-    await session.commit()
-    await session.refresh(pipeline)
-
-    return pipeline
-
-async def update_pipeline(
-    session: AsyncSession,
-    pipeline_id: str,
-    data: dict,
-) -> Optional[EtlPipeline]:
-    """Частично обновить пайплайн.
-
-    data — словарь только с теми полями, которые реально нужно поменять.
+    Обеспечивает:
+    - отсутствие бизнес-логики;
+    - совместимость с сервисным слоем через доменные исключения;
+    - единообразный контракт (всегда возвращает объект или кидает ошибку).
     """
-    pipeline = await get_pipeline(session, pipeline_id)
-    if pipeline is None:
-        return None
 
-    for field, value in data.items():
-        setattr(pipeline, field, value)
+    async def list_pipelines(self, session: AsyncSession) -> Sequence[EtlPipeline]:
+        stmt = select(EtlPipeline).order_by(EtlPipeline.name)
+        result = await session.execute(stmt)
+        return result.scalars().all()
 
-    await session.commit()
-    await session.refresh(pipeline)
-    return pipeline
+    async def get_pipeline(self, session: AsyncSession, pipeline_id: str) -> EtlPipeline:
+        stmt = select(EtlPipeline).where(EtlPipeline.id == pipeline_id)
+        result = await session.execute(stmt)
+        pipeline = result.scalar_one_or_none()
 
-async def list_pipeline_runs(
-    session: AsyncSession,
-    pipeline_id: str,
-    limit: int = 50,
-) -> Sequence[EtlRun]:
-    """Вернуть историю запусков для заданного пайплайна.
+        if pipeline is None:
+            raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found")
 
-    Сортируем по времени старта (сначала свежие).
-    """
-    stmt = (
-        select(EtlRun)
-        .where(EtlRun.pipeline_id == pipeline_id)
-        .order_by(EtlRun.started_at.desc())
-        .limit(limit)
-    )
-    result = await session.execute(stmt)
-    return result.scalars().all()
+        return pipeline
+
+    async def create_pipeline(self, session: AsyncSession, payload) -> EtlPipeline:
+        """Создать новый ETL пайплайн — без бизнес-валидации (валидация должна быть в сервисе)."""
+
+        pipeline = EtlPipeline(
+            id=str(uuid4()),
+            name=payload.name,
+            description=payload.description,
+            type=payload.type,
+            mode=payload.mode,
+            enabled=payload.enabled,
+            batch_size=payload.batch_size,
+            target_table=payload.target_table,
+            source_query=payload.source_query,
+        )
+
+        session.add(pipeline)
+        await session.commit()
+        await session.refresh(pipeline)
+        return pipeline
+
+    async def update_pipeline_status(
+        self,
+        session: AsyncSession,
+        pipeline_id: str,
+        new_status: str,
+    ) -> EtlPipeline:
+        pipeline = await self.get_pipeline(session, pipeline_id)
+        pipeline.status = new_status
+
+        await session.commit()
+        await session.refresh(pipeline)
+        return pipeline
+
+    async def update_pipeline(
+        self,
+        session: AsyncSession,
+        pipeline_id: str,
+        data: dict,
+    ) -> EtlPipeline:
+        pipeline = await self.get_pipeline(session, pipeline_id)
+
+        for field, value in data.items():
+            setattr(pipeline, field, value)
+
+        await session.commit()
+        await session.refresh(pipeline)
+        return pipeline
+
+    async def list_pipeline_runs(
+        self,
+        session: AsyncSession,
+        pipeline_id: str,
+        limit: int = 50,
+    ) -> Sequence[EtlRun]:
+
+        # Мы не валидируем существование pipeline здесь —
+        # пусть это решает сервисный слой (по SOLID)
+
+        stmt = (
+            select(EtlRun)
+            .where(EtlRun.pipeline_id == pipeline_id)
+            .order_by(EtlRun.started_at.desc())
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        return result.scalars().all()
