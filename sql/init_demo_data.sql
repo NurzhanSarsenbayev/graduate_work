@@ -28,6 +28,8 @@ SET
     votes_count = EXCLUDED.votes_count,
     updated_at  = NOW();
 
+ALTER TABLE etl.etl_pipelines
+ADD COLUMN IF NOT EXISTS python_module text NULL;
 
 -- Добавляем два пайплайна в etl.etl_pipelines
 INSERT INTO etl.etl_pipelines (

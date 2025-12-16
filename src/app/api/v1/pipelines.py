@@ -65,7 +65,7 @@ async def run_pipeline_endpoint(
     pipeline_id: UUID,
     service: PipelinesService = Depends(get_pipelines_service),
 ) -> PipelineOut:
-    """Запрос на запуск пайплайна: статус -> RUNNING."""
+    """Запрос на запуск пайплайна: статус -> RUN_REQUESTED."""
     try:
         pipeline = await service.run_pipeline(str(pipeline_id))
     except PipelineNotFoundError:
@@ -79,7 +79,7 @@ async def pause_pipeline_endpoint(
     pipeline_id: UUID,
     service: PipelinesService = Depends(get_pipelines_service),
 ) -> PipelineOut:
-    """Запрос на паузу пайплайна: статус -> PAUSED."""
+    """Запрос на паузу пайплайна: статус -> PAUSE_REQUESTED."""
     try:
         pipeline = await service.pause_pipeline(str(pipeline_id))
     except PipelineNotFoundError:

@@ -8,7 +8,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.db import async_session_factory
-from src.runner.services import get_active_pipelines, run_sql_full_pipeline
+from src.runner.services import get_active_pipelines, run_pipeline
+
 
 logger = logging.getLogger("etl_runner")
 
@@ -40,14 +41,14 @@ async def runner_tick() -> None:
         pipelines = await get_active_pipelines(session)
 
         if not pipelines:
-            logger.info("No active pipelines (enabled & RUNNING) found")
+            logger.info("No active pipelines (enabled & RUN_REQUESTED/PAUSE_REQUESTED) found")
             return
 
         logger.info("Found %d active pipeline(s)", len(pipelines))
 
         for pipeline in pipelines:
             try:
-                await run_sql_full_pipeline(session, pipeline)
+                await run_pipeline(session, pipeline)
             except Exception:
                 logger.exception(
                     "Error while running pipeline id=%s name=%s",

@@ -27,9 +27,9 @@ class PipelineBase(BaseModel):
 class PipelineCreate(PipelineBase):
     """Модель для создания пайплайна."""
 
-    # единственное поле, которого нет в Base, но нужно при создании
     source_query: str
-
+    python_module: str | None = None
+    incremental_key: str | None = None
 
 class PipelineUpdate(BaseModel):
     """Модель для частичного обновления пайплайна."""
@@ -45,6 +45,8 @@ class PipelineUpdate(BaseModel):
     batch_size: int | None = None
     source_query: str | None = None
 
+    python_module: str | None = None
+    incremental_key: str | None = None
 
 # ======================
 #   Выходные модели
@@ -58,6 +60,8 @@ class PipelineOut(PipelineBase):
 
     id: UUID
     status: str
+    python_module: str | None = None
+    source_query: str | None = None
 
 
 class PipelineRunOut(BaseModel):

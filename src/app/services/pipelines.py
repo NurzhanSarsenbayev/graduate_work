@@ -68,36 +68,44 @@ class PipelinesService:
     # ---------- Управление статусами ----------
 
     async def run_pipeline(self, pipeline_id: str) -> EtlPipeline:
-        """Поставить пайплайн в состояние RUNNING.
+        """Запросить запуск пайплайна (RUN_REQUESTED).
 
         - если пайплайна нет -> PipelineNotFoundError;
-        - если уже RUNNING — просто возвращаем как есть.
+        - если уже RUNNING или RUN_REQUESTED — просто возвращаем как есть;
+        - если PAUSE_REQUESTED/PAUSED — разрешаем запуск (переводим в RUN_REQUESTED).
         """
         pipeline = await self.get_pipeline(pipeline_id)
 
-        if pipeline.status == PipelineStatus.RUNNING.value:
+        if pipeline.status in (
+                PipelineStatus.RUNNING.value,
+                PipelineStatus.RUN_REQUESTED.value,
+        ):
             return pipeline
 
         return await self.repo.update_pipeline_status(
             session=self.session,
             pipeline_id=pipeline_id,
-            new_status=PipelineStatus.RUNNING.value,
+            new_status=PipelineStatus.RUN_REQUESTED.value,
         )
 
     async def pause_pipeline(self, pipeline_id: str) -> EtlPipeline:
-        """Поставить пайплайн на паузу (PAUSED).
+        """Запросить паузу пайплайна (PAUSE_REQUESTED).
 
-        - если пайплайна нет -> PipelineNotFoundError.
+        - если пайплайна нет -> PipelineNotFoundError;
+        - если уже PAUSED или PAUSE_REQUESTED — просто возвращаем как есть.
         """
         pipeline = await self.get_pipeline(pipeline_id)
 
-        if pipeline.status == PipelineStatus.PAUSED.value:
+        if pipeline.status in (
+                PipelineStatus.PAUSED.value,
+                PipelineStatus.PAUSE_REQUESTED.value,
+        ):
             return pipeline
 
         return await self.repo.update_pipeline_status(
             session=self.session,
             pipeline_id=pipeline_id,
-            new_status=PipelineStatus.PAUSED.value,
+            new_status=PipelineStatus.PAUSE_REQUESTED.value,
         )
 
     async def update_pipeline(

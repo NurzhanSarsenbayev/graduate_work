@@ -47,6 +47,8 @@ class SQLPipelinesRepository:
             batch_size=payload.batch_size,
             target_table=payload.target_table,
             source_query=payload.source_query,
+            python_module=payload.python_module,
+            incremental_key=payload.incremental_key,
         )
 
         session.add(pipeline)

@@ -5,7 +5,9 @@ from enum import Enum
 
 class PipelineStatus(str, Enum):
     IDLE = "IDLE"
+    RUN_REQUESTED = "RUN_REQUESTED"
     RUNNING = "RUNNING"
+    PAUSE_REQUESTED = "PAUSE_REQUESTED"
     PAUSED = "PAUSED"
     FAILED = "FAILED"
 

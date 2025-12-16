@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS etl_pipelines (
     -- Для PYTHON может быть NULL (логика живёт в python_task)
     source_query    TEXT,
 
+    -- Для PYTHON-пайплайнов: dotted path до модуля/функции трансформации
+    python_module   TEXT,
+
     target_table    TEXT NOT NULL,
 
     -- Режим работы: полный или инкрементальный
@@ -27,7 +30,7 @@ CREATE TABLE IF NOT EXISTS etl_pipelines (
 
     -- Логический статус пайплайна
     status          TEXT NOT NULL DEFAULT 'IDLE'
-                    CHECK (status IN ('IDLE', 'RUNNING', 'PAUSED', 'FAILED')),
+                    CHECK (status IN ('IDLE', 'RUN_REQUESTED', 'RUNNING', 'PAUSE_REQUESTED', 'PAUSED', 'FAILED')),
 
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()

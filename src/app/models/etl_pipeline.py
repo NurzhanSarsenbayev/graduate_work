@@ -55,6 +55,9 @@ class EtlPipeline(Base):
     # Базовый SQL-источник для SQL-пайплайнов (может быть NULL для PYTHON)
     source_query: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Для PYTHON пайплайнов: dotted path до модуля с transform()
+    python_module: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     target_table: Mapped[str] = mapped_column(Text, nullable=False)
 
     # "full" / "incremental"

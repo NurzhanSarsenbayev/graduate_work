@@ -11,61 +11,96 @@ from src.runner.services.runs import (
     finish_run_success,
     finish_run_failed,
 )
-from src.runner.services.writers import write_target_table
+from src.runner.services.writers import resolve_writer
+from src.runner.services.transformers import resolve_transformer
 
 logger = logging.getLogger("etl_runner")
 
 
-async def run_sql_full_pipeline(
-    session: AsyncSession,
-    pipeline: EtlPipeline,
-) -> None:
-    """Один полный прогон SQL-пайплайна в режиме full."""
+def _wrap_query_with_limit_offset(base_query: str, limit: int, offset: int) -> str:
+    """
+    Безопасно добавляем LIMIT/OFFSET к ЛЮБОМУ source_query:
+    оборачиваем в подзапрос, чтобы не ломать WITH/ORDER BY и т.д.
+    """
+    q = base_query.strip().rstrip(";")
+    return f"SELECT * FROM ({q}) AS src LIMIT {limit} OFFSET {offset}"
 
-    if pipeline.type != "SQL":
+
+async def run_sql_full_pipeline(session: AsyncSession, pipeline: EtlPipeline) -> None:
+    """Полный прогон SQL/PYTHON пайплайна в режиме full с батчами."""
+
+    if pipeline.type not in ("SQL", "PYTHON"):
         raise ValueError(f"Unsupported pipeline.type: {pipeline.type}")
     if pipeline.mode != "full":
         raise ValueError(f"Unsupported pipeline.mode: {pipeline.mode}")
     if not pipeline.source_query:
         raise ValueError("Pipeline has empty source_query")
 
+    batch_size = int(pipeline.batch_size or 1000)
+    offset = 0
+
     logger.info(
-        "Running ETL for pipeline id=%s name=%s mode=%s target=%s",
+        "Running ETL for pipeline id=%s name=%s type=%s mode=%s target=%s batch_size=%s",
         pipeline.id,
         pipeline.name,
+        pipeline.type,
         pipeline.mode,
         pipeline.target_table,
+        batch_size,
     )
 
     run = await start_run(session, pipeline)
 
-    rows_read = 0
-    rows_written = 0
+    total_read = 0
+    total_written = 0
+
+    transformer = resolve_transformer(pipeline)
+    writer = resolve_writer(pipeline)
 
     try:
-        # 1. Читаем данные из источника
-        src_result = await session.execute(text(pipeline.source_query))
-        rows = src_result.mappings().all()
-        rows_read = len(rows)
+        while True:
+            batch_query = _wrap_query_with_limit_offset(
+                base_query=pipeline.source_query,
+                limit=batch_size,
+                offset=offset,
+            )
 
-        logger.info(
-            "Pipeline id=%s name=%s: read %d rows from source",
-            pipeline.id,
-            pipeline.name,
-            rows_read,
-        )
+            src_result = await session.execute(text(batch_query))
+            rows = src_result.mappings().all()
 
-        # 2. Пишем в целевую таблицу
-        if rows:
-            rows_written = await write_target_table(session, pipeline, rows)
+            if not rows:
+                break
 
-        # 3. Успешное завершение
+            batch_read = len(rows)
+            total_read += batch_read
+
+            logger.info(
+                "Pipeline id=%s name=%s: read batch size=%d (offset=%d)",
+                pipeline.id,
+                pipeline.name,
+                batch_read,
+                offset,
+            )
+
+            # transform
+            rows = await transformer.transform(pipeline, rows)
+
+            # write
+            if rows:
+                written = await writer.write(session, pipeline, rows)
+                total_written += int(written or 0)
+
+            # ✅ фиксируем батч в БД (важно для корректности и будущей PAUSE-after-batch)
+            await session.commit()
+
+            offset += batch_size
+
         await finish_run_success(
             session=session,
             pipeline=pipeline,
             run=run,
-            rows_read=rows_read,
-            rows_written=rows_written,
+            rows_read=total_read,
+            rows_written=total_written,
         )
 
     except Exception as exc:
