@@ -31,7 +31,7 @@ class EtlPipeline(Base):
             name="etl_pipelines_mode_check",
         ),
         CheckConstraint(
-            "status IN ('IDLE', 'RUNNING', 'PAUSED', 'FAILED')",
+            "status IN ('IDLE','RUN_REQUESTED', 'RUNNING', 'PAUSE_REQUESTED', 'PAUSED', 'FAILED')",
             name="etl_pipelines_status_check",
         ),
         {"schema": "etl"},
@@ -67,7 +67,11 @@ class EtlPipeline(Base):
         default="full",
     )
 
+    # incremental: primary cursor column (обычно timestamp/updated_at)
     incremental_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # incremental: tie-breaker key (обычно film_id / id). ВАЖНО: убирает хардкод.
+    incremental_id_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     batch_size: Mapped[int] = mapped_column(
         Integer,
@@ -80,7 +84,6 @@ class EtlPipeline(Base):
         default=True,
     )
 
-    # "IDLE" / "RUNNING" / "PAUSED" / "FAILED"
     status: Mapped[str] = mapped_column(
         Text,
         nullable=False,

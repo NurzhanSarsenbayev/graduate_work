@@ -5,30 +5,39 @@ import logging
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.app.models import EtlPipeline
-from src.runner.services.runs import (
-    start_run,
-    finish_run_success,
-    finish_run_failed,
-)
-from src.runner.services.writers import resolve_writer
+from src.app.core.enums import PipelineStatus
+from src.runner.services.pipeline_control import apply_pause_requested
+from src.runner.services.pipeline_snapshot import PipelineSnapshot
 from src.runner.services.transformers import resolve_transformer
+from src.runner.services.writers import resolve_writer
 
 logger = logging.getLogger("etl_runner")
 
 
 def _wrap_query_with_limit_offset(base_query: str, limit: int, offset: int) -> str:
-    """
-    Безопасно добавляем LIMIT/OFFSET к ЛЮБОМУ source_query:
-    оборачиваем в подзапрос, чтобы не ломать WITH/ORDER BY и т.д.
-    """
     q = base_query.strip().rstrip(";")
     return f"SELECT * FROM ({q}) AS src LIMIT {limit} OFFSET {offset}"
 
 
-async def run_sql_full_pipeline(session: AsyncSession, pipeline: EtlPipeline) -> None:
-    """Полный прогон SQL/PYTHON пайплайна в режиме full с батчами."""
+async def _pause_if_requested(session: AsyncSession, pipeline_id: str) -> bool:
+    res = await session.execute(
+        text("SELECT status FROM etl.etl_pipelines WHERE id = :id"),
+        {"id": pipeline_id},
+    )
+    status = res.scalar_one()
+    if status == PipelineStatus.PAUSE_REQUESTED.value:
+        await apply_pause_requested(session, pipeline_id)  # commit внутри
+        logger.info("Pause requested: pipeline id=%s -> PAUSED (after batch)", pipeline_id)
+        return True
+    return False
 
+
+async def run_sql_full_pipeline(
+    session: AsyncSession,
+    pipeline: PipelineSnapshot,
+    *,
+    run_id: str,  # пока не используется внутри, но контракт одинаковый
+) -> tuple[int, int]:
     if pipeline.type not in ("SQL", "PYTHON"):
         raise ValueError(f"Unsupported pipeline.type: {pipeline.type}")
     if pipeline.mode != "full":
@@ -40,80 +49,41 @@ async def run_sql_full_pipeline(session: AsyncSession, pipeline: EtlPipeline) ->
     offset = 0
 
     logger.info(
-        "Running ETL for pipeline id=%s name=%s type=%s mode=%s target=%s batch_size=%s",
+        "Running ETL full: id=%s name=%s type=%s target=%s batch_size=%s",
         pipeline.id,
         pipeline.name,
         pipeline.type,
-        pipeline.mode,
         pipeline.target_table,
         batch_size,
     )
 
-    run = await start_run(session, pipeline)
-
     total_read = 0
     total_written = 0
 
-    transformer = resolve_transformer(pipeline)
+    transformer = resolve_transformer(pipeline)  # PipelineSnapshot подходит по атрибутам
     writer = resolve_writer(pipeline)
 
-    try:
-        while True:
-            batch_query = _wrap_query_with_limit_offset(
-                base_query=pipeline.source_query,
-                limit=batch_size,
-                offset=offset,
-            )
+    while True:
+        batch_query = _wrap_query_with_limit_offset(pipeline.source_query, batch_size, offset)
+        src_result = await session.execute(text(batch_query))
+        rows = src_result.mappings().all()
 
-            src_result = await session.execute(text(batch_query))
-            rows = src_result.mappings().all()
+        if not rows:
+            break
 
-            if not rows:
-                break
+        total_read += len(rows)
 
-            batch_read = len(rows)
-            total_read += batch_read
+        rows = await transformer.transform(pipeline, rows)
 
-            logger.info(
-                "Pipeline id=%s name=%s: read batch size=%d (offset=%d)",
-                pipeline.id,
-                pipeline.name,
-                batch_read,
-                offset,
-            )
+        if rows:
+            written = await writer.write(session, pipeline, rows)
+            total_written += int(written or 0)
 
-            # transform
-            rows = await transformer.transform(pipeline, rows)
+        await session.commit()
 
-            # write
-            if rows:
-                written = await writer.write(session, pipeline, rows)
-                total_written += int(written or 0)
+        if await _pause_if_requested(session, pipeline.id):
+            return total_read, total_written
 
-            # ✅ фиксируем батч в БД (важно для корректности и будущей PAUSE-after-batch)
-            await session.commit()
+        offset += batch_size
 
-            offset += batch_size
-
-        await finish_run_success(
-            session=session,
-            pipeline=pipeline,
-            run=run,
-            rows_read=total_read,
-            rows_written=total_written,
-        )
-
-    except Exception as exc:
-        await session.rollback()
-        await finish_run_failed(
-            session=session,
-            pipeline=pipeline,
-            run=run,
-            error_message=str(exc),
-        )
-        logger.exception(
-            "Error while running pipeline id=%s name=%s",
-            pipeline.id,
-            pipeline.name,
-        )
-        raise
+    return total_read, total_written

@@ -68,45 +68,39 @@ class PipelinesService:
     # ---------- Управление статусами ----------
 
     async def run_pipeline(self, pipeline_id: str) -> EtlPipeline:
-        """Запросить запуск пайплайна (RUN_REQUESTED).
-
-        - если пайплайна нет -> PipelineNotFoundError;
-        - если уже RUNNING или RUN_REQUESTED — просто возвращаем как есть;
-        - если PAUSE_REQUESTED/PAUSED — разрешаем запуск (переводим в RUN_REQUESTED).
-        """
+        """Запросить запуск пайплайна (RUN_REQUESTED) атомарно."""
+        # Проверяем, что пайплайн существует
         pipeline = await self.get_pipeline(pipeline_id)
 
+        # Идемпотентность: если уже RUNNING/RUN_REQUESTED — просто возвращаем
         if pipeline.status in (
-                PipelineStatus.RUNNING.value,
-                PipelineStatus.RUN_REQUESTED.value,
+            PipelineStatus.RUNNING.value,
+            PipelineStatus.RUN_REQUESTED.value,
         ):
             return pipeline
 
-        return await self.repo.update_pipeline_status(
-            session=self.session,
-            pipeline_id=pipeline_id,
-            new_status=PipelineStatus.RUN_REQUESTED.value,
-        )
+        updated = await self.repo.request_run(self.session, pipeline_id)
+        if updated is not None:
+            return updated
+
+        # Если переход не случился (например, FAILED) — возвращаем текущее
+        return await self.get_pipeline(pipeline_id)
 
     async def pause_pipeline(self, pipeline_id: str) -> EtlPipeline:
-        """Запросить паузу пайплайна (PAUSE_REQUESTED).
-
-        - если пайплайна нет -> PipelineNotFoundError;
-        - если уже PAUSED или PAUSE_REQUESTED — просто возвращаем как есть.
-        """
+        """Запросить паузу (PAUSE_REQUESTED) атомарно."""
         pipeline = await self.get_pipeline(pipeline_id)
 
         if pipeline.status in (
-                PipelineStatus.PAUSED.value,
-                PipelineStatus.PAUSE_REQUESTED.value,
+            PipelineStatus.PAUSED.value,
+            PipelineStatus.PAUSE_REQUESTED.value,
         ):
             return pipeline
 
-        return await self.repo.update_pipeline_status(
-            session=self.session,
-            pipeline_id=pipeline_id,
-            new_status=PipelineStatus.PAUSE_REQUESTED.value,
-        )
+        updated = await self.repo.request_pause(self.session, pipeline_id)
+        if updated is not None:
+            return updated
+
+        return await self.get_pipeline(pipeline_id)
 
     async def update_pipeline(
         self,

@@ -17,8 +17,8 @@ class PipelineBase(BaseModel):
 
     name: str
     description: str | None = None
-    type: str = "SQL"          # пока только SQL
-    mode: str = "full"         # full / incremental
+    type: str = "SQL"          # "SQL" / "PYTHON"
+    mode: str = "full"         # "full" / "incremental"
     enabled: bool = True
     target_table: str
     batch_size: int = 1000
@@ -29,7 +29,11 @@ class PipelineCreate(PipelineBase):
 
     source_query: str
     python_module: str | None = None
+
+    # incremental
     incremental_key: str | None = None
+    incremental_id_key: str | None = None  # NEW
+
 
 class PipelineUpdate(BaseModel):
     """Модель для частичного обновления пайплайна."""
@@ -38,15 +42,19 @@ class PipelineUpdate(BaseModel):
 
     name: str | None = None
     description: str | None = None
-    type: str | None = None           # "SQL" / "PYTHON"
-    mode: str | None = None           # "full" / "incremental"
+    type: str | None = None
+    mode: str | None = None
     enabled: bool | None = None
     target_table: str | None = None
     batch_size: int | None = None
     source_query: str | None = None
 
     python_module: str | None = None
+
+    # incremental
     incremental_key: str | None = None
+    incremental_id_key: str | None = None  # NEW
+
 
 # ======================
 #   Выходные модели
@@ -55,13 +63,16 @@ class PipelineUpdate(BaseModel):
 class PipelineOut(PipelineBase):
     """Упрощённое представление пайплайна в ответе API."""
 
-    # from_attributes=True позволяет пихать сюда ORM-модель EtlPipeline
     model_config = ConfigDict(from_attributes=True, extra="ignore")
 
     id: UUID
     status: str
     python_module: str | None = None
     source_query: str | None = None
+
+    # incremental
+    incremental_key: str | None = None
+    incremental_id_key: str | None = None  # NEW
 
 
 class PipelineRunOut(BaseModel):
@@ -76,3 +87,4 @@ class PipelineRunOut(BaseModel):
     rows_read: int
     rows_written: int
     error_message: str | None = None
+

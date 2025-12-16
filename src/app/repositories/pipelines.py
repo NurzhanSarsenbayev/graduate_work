@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import select,update
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import uuid4
 
 from src.app.models import EtlPipeline, EtlRun
 from src.app.core.exceptions import PipelineNotFoundError
-
+from src.app.core.enums import PipelineStatus
 
 class SQLPipelinesRepository:
     """Репозиторий для работы с пайплайнами и запусками.
@@ -102,3 +102,78 @@ class SQLPipelinesRepository:
         )
         result = await session.execute(stmt)
         return result.scalars().all()
+
+    async def request_run(self, session: AsyncSession, pipeline_id: str) -> EtlPipeline | None:
+        """Атомарно перевести пайплайн в RUN_REQUESTED, если он в разрешённом статусе.
+        Возвращает обновлённый объект или None, если переход не выполнен.
+        """
+        allowed_from = (
+            PipelineStatus.IDLE.value,
+            PipelineStatus.PAUSED.value,
+            PipelineStatus.PAUSE_REQUESTED.value,
+        )
+
+        stmt = (
+            update(EtlPipeline)
+            .where(
+                EtlPipeline.id == pipeline_id,
+                EtlPipeline.status.in_(allowed_from),
+            )
+            .values(status=PipelineStatus.RUN_REQUESTED.value)
+            .returning(EtlPipeline)
+        )
+        result = await session.execute(stmt)
+        updated = result.scalar_one_or_none()
+        await session.commit()
+
+        if updated is None:
+            return None
+
+        # returning(...) обычно уже даёт объект, но refresh не повредит
+        await session.refresh(updated)
+        return updated
+
+    async def request_pause(self, session: AsyncSession, pipeline_id: str) -> EtlPipeline | None:
+        """Атомарно перевести пайплайн в PAUSE_REQUESTED, если он в разрешённом статусе.
+        Возвращает обновлённый объект или None.
+        """
+        allowed_from = (
+            PipelineStatus.RUNNING.value,
+            PipelineStatus.RUN_REQUESTED.value,
+            PipelineStatus.IDLE.value,  # опционально: чтобы можно было поставить паузу до старта
+        )
+
+        stmt = (
+            update(EtlPipeline)
+            .where(
+                EtlPipeline.id == pipeline_id,
+                EtlPipeline.status.in_(allowed_from),
+            )
+            .values(status=PipelineStatus.PAUSE_REQUESTED.value)
+            .returning(EtlPipeline)
+        )
+        result = await session.execute(stmt)
+        updated = result.scalar_one_or_none()
+        await session.commit()
+
+        if updated is None:
+            return None
+
+        await session.refresh(updated)
+        return updated
+
+    async def claim_run_requested(self, session: AsyncSession, pipeline_id: str) -> bool:
+        """Claim step для runner: RUN_REQUESTED -> RUNNING.
+        True если мы захватили пайплайн, False если уже захвачен/не в том статусе.
+        """
+        stmt = (
+            update(EtlPipeline)
+            .where(
+                EtlPipeline.id == pipeline_id,
+                EtlPipeline.status == PipelineStatus.RUN_REQUESTED.value,
+            )
+            .values(status=PipelineStatus.RUNNING.value)
+        )
+        result = await session.execute(stmt)
+        await session.commit()
+        return (result.rowcount or 0) == 1
