@@ -2,54 +2,28 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.app.models import EtlState
 from src.app.core.enums import PipelineStatus
-from src.runner.services.pipeline_control import apply_pause_requested
-from src.runner.services.transformers import resolve_transformer
-from src.runner.services.writers import resolve_writer
+from src.runner.adapters.transformers import resolve_transformer
+from src.runner.adapters.writers import resolve_writer
+from src.runner.ports.pipeline import PipelineLike
+from src.runner.repos.pipelines import PipelinesRepo
+from src.runner.repos.state import StateRepo
 
 logger = logging.getLogger("etl_runner")
 
 
-def _pget(pipeline: Any, key: str, default: Any = None) -> Any:
-    """Достаём поле из snapshot-а, который может быть dict или dataclass/obj."""
-    if isinstance(pipeline, dict):
-        return pipeline.get(key, default)
-    return getattr(pipeline, key, default)
-
-
-async def _get_state(session: AsyncSession, pipeline_id: str) -> EtlState | None:
-    return await session.get(EtlState, pipeline_id)
-
-
-async def _upsert_state(
+async def _pause_if_requested(
     session: AsyncSession,
     pipeline_id: str,
-    last_value: str,
-    last_id: str,
-) -> None:
-    state = await session.get(EtlState, pipeline_id)
-    if state is None:
-        state = EtlState(pipeline_id=pipeline_id)
-        session.add(state)
-
-    state.last_processed_value = last_value
-    state.last_processed_id = last_id
-
-
-async def _pause_if_requested(session: AsyncSession, pipeline_id: str) -> bool:
-    res = await session.execute(
-        text("SELECT status FROM etl.etl_pipelines WHERE id = :id"),
-        {"id": pipeline_id},
-    )
-    status = res.scalar_one()
+    pipelines_repo: PipelinesRepo,
+) -> bool:
+    status = await pipelines_repo.get_status(session, pipeline_id)
     if status == PipelineStatus.PAUSE_REQUESTED.value:
-        await apply_pause_requested(session, pipeline_id)  # commit внутри
+        await pipelines_repo.apply_pause_requested(session, pipeline_id)  # commit внутри
         logger.info("Pause requested: pipeline id=%s -> PAUSED (after batch)", pipeline_id)
         return True
     return False
@@ -57,48 +31,42 @@ async def _pause_if_requested(session: AsyncSession, pipeline_id: str) -> bool:
 
 async def run_sql_incremental_pipeline(
     session: AsyncSession,
-    pipeline: Any,  # dict или PipelineSnapshot
+    pipeline: PipelineLike,
     *,
-    run_id: str,  # сейчас может не использоваться — ок
+    run_id: str,
+    pipelines_repo: PipelinesRepo,
+    state_repo: StateRepo,
 ) -> tuple[int, int]:
-    """Incremental прогон SQL/PYTHON пайплайна.
+    ptype = pipeline.type
+    mode = pipeline.mode
 
-    pipeline: snapshot (dict или dataclass/obj).
-    Возвращаем (rows_read, rows_written).
-    """
-
-    ptype = _pget(pipeline, "type")
-    mode = _pget(pipeline, "mode")
-
-    if ptype not in ("SQL", "PYTHON"):
+    if ptype not in ("SQL", "PYTHON", "ES"):
         raise ValueError(f"Unsupported pipeline.type: {ptype}")
     if mode != "incremental":
         raise ValueError(f"Unsupported pipeline.mode: {mode}")
 
-    source_query = _pget(pipeline, "source_query")
+    source_query = pipeline.source_query
     if not source_query:
         raise ValueError("Pipeline has empty source_query")
 
-    inc_key = _pget(pipeline, "incremental_key")
+    inc_key = pipeline.incremental_key
     if not inc_key:
         raise ValueError("Incremental pipeline requires incremental_key")
 
-    batch_size = int(_pget(pipeline, "batch_size") or 1000)
+    batch_size = int(pipeline.batch_size or 1000)
+    id_key = (pipeline.incremental_id_key or "film_id").strip()
 
-    # ✅ убрали хардкод: tie-breaker можно задать, иначе fallback на film_id
-    id_key = (_pget(pipeline, "incremental_id_key") or "film_id").strip()
-
-    pid = str(_pget(pipeline, "id"))
-    pname = str(_pget(pipeline, "name") or pid)
+    pid = str(pipeline.id)
+    pname = str(pipeline.name or pid)
 
     total_read = 0
     total_written = 0
 
-    transformer = resolve_transformer(pipeline)  # если resolve_* ждут EtlPipeline и упадут — скажи
+    transformer = resolve_transformer(pipeline)
     writer = resolve_writer(pipeline)
 
     try:
-        state = await _get_state(session, pid)
+        state = await state_repo.get(session, pid)
         last_ts_raw = state.last_processed_value if state and state.last_processed_value else None
         last_id = state.last_processed_id if state and state.last_processed_id else None
 
@@ -140,17 +108,13 @@ async def run_sql_incremental_pipeline(
 
             total_read += len(src_rows)
 
-            # transform
             rows = await transformer.transform(pipeline, src_rows)
 
-            # write
             if rows:
                 written = await writer.write(session, pipeline, rows)
                 total_written += int(written or 0)
 
-            # ✅ checkpoint берём по исходному src_rows, а не по transform (надёжнее)
             tail = src_rows[-1]
-
             if inc_key not in tail:
                 raise ValueError(f"Row does not contain incremental_key={inc_key!r}")
             if id_key not in tail:
@@ -164,11 +128,12 @@ async def run_sql_incremental_pipeline(
                 pname, last_ts, last_id,
             )
 
-            await _upsert_state(session, pid, last_ts.isoformat(), last_id)
+            last_ts_str = last_ts.isoformat() if hasattr(last_ts, "isoformat") else str(last_ts)
+            await state_repo.upsert(session, pid, last_value=last_ts_str, last_id=last_id)
 
             await session.commit()
 
-            if await _pause_if_requested(session, pid):
+            if await _pause_if_requested(session, pid, pipelines_repo):
                 return total_read, total_written
 
         return total_read, total_written

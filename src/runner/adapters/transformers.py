@@ -5,15 +5,14 @@ import importlib
 from dataclasses import dataclass
 from typing import Protocol
 
-from src.app.models import EtlPipeline
-
+from src.runner.ports.pipeline import PipelineLike
 
 class Transformer(Protocol):
-    async def transform(self, pipeline: EtlPipeline, rows: list[dict]) -> list[dict]: ...
+    async def transform(self, pipeline: PipelineLike, rows: list[dict]) -> list[dict]: ...
 
 
 class NoOpTransformer:
-    async def transform(self, pipeline: EtlPipeline, rows: list[dict]) -> list[dict]:
+    async def transform(self, pipeline: PipelineLike, rows: list[dict]) -> list[dict]:
         return rows
 
 @dataclass(frozen=True)
@@ -21,7 +20,7 @@ class PythonCallableTransformer:
     dotted_path: str
     fn_name: str = "transform"
 
-    async def transform(self, pipeline: EtlPipeline, rows: list[dict]) -> list[dict]:
+    async def transform(self, pipeline: PipelineLike, rows: list[dict]) -> list[dict]:
         module = importlib.import_module(self.dotted_path)
         fn = getattr(module, self.fn_name, None)
         if fn is None:
@@ -40,7 +39,7 @@ class PythonCallableTransformer:
             )
         return result
 
-def resolve_transformer(pipeline: EtlPipeline) -> Transformer:
+def resolve_transformer(pipeline: PipelineLike) -> Transformer:
     # 1) не PYTHON — просто пропускаем
     if pipeline.type != "PYTHON":
         return NoOpTransformer()

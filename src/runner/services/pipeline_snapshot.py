@@ -17,6 +17,7 @@ class PipelineSnapshot:
     python_module: Optional[str]
     target_table: str
     incremental_key: Optional[str]
+    incremental_id_key: Optional[str]
     description: Optional[str] = None  # для legacy fallback в transformer
 
 
@@ -31,5 +32,6 @@ def snapshot_pipeline(p: EtlPipeline) -> PipelineSnapshot:
         python_module=p.python_module,
         target_table=p.target_table,
         incremental_key=p.incremental_key,
+        incremental_id_key=p.incremental_id_key,
         description=p.description,
     )

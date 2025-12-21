@@ -157,12 +157,12 @@ api-create-sql-film-dim-slow:
 api-create-sql-film-dim-inc:
 	curl -s -X POST $(PIPES)/ \
 	  -H "Content-Type: application/json" \
-	  -d "{\"name\":\"$(NAME)\",\"description\":\"Incremental SQL pipeline\",\"type\":\"SQL\",\"mode\":\"incremental\",\"enabled\":true,\"batch_size\":$(BATCH),\"incremental_key\":\"updated_at\",\"target_table\":\"analytics.film_dim\",\"source_query\":\"SELECT id AS film_id, title, rating, updated_at FROM content.film_work\"}" | $(JSON_FMT)
+	  -d "{\"name\":\"$(NAME)_inc\",\"description\":\"Incremental SQL pipeline\",\"type\":\"SQL\",\"mode\":\"incremental\",\"enabled\":true,\"batch_size\":$(BATCH),\"incremental_key\":\"updated_at\",\"target_table\":\"analytics.film_dim\",\"source_query\":\"SELECT id AS film_id, title, rating, updated_at FROM content.film_work\"}" | $(JSON_FMT)
 
 api-create-sql-film-dim-inc-slow:
 	curl -s -X POST $(PIPES)/ \
 	  -H "Content-Type: application/json" \
-	  -d "{\"name\":\"$(NAME)\",\
+	  -d "{\"name\":\"$(NAME)_inc_slow\",\
 \"description\":\"Slow incremental SQL pipeline (sleep per row)\",\
 \"type\":\"SQL\",\
 \"mode\":\"incremental\",\
@@ -176,7 +176,7 @@ api-create-sql-film-dim-inc-slow:
 api-create-python-film-dim:
 	curl -s -X POST $(PIPES)/ \
 	  -H "Content-Type: application/json" \
-	  -d "{\"name\":\"film_dim_python\",\
+	  -d "{\"name\":\"$(NAME)\",\
 \"description\":\"Demo PYTHON pipeline\",\
 \"type\":\"PYTHON\",\
 \"mode\":\"full\",\
@@ -210,6 +210,45 @@ api-create-sql-film-rating-agg-slow:
 \"enabled\":true,\
 \"batch_size\":$(BATCH),\
 \"target_table\":\"analytics.film_rating_agg\",\
+\"source_query\":\"SELECT * FROM (SELECT r.film_id AS film_id, AVG(r.rating)::float8 AS avg_rating, COUNT(*)::int AS rating_count FROM ugc.ratings r GROUP BY r.film_id) q CROSS JOIN LATERAL (SELECT pg_sleep($(SLEEP))) s\"}" \
+	| $(JSON_FMT)
+
+api-create-es-film-dim:
+	curl -s -X POST $(PIPES)/ \
+	  -H "Content-Type: application/json" \
+	  -d "{\"name\":\"film_dim_es\",\
+\"description\":\"Demo ES sink\",\
+\"type\":\"ES\",\
+\"mode\":\"full\",\
+\"enabled\":true,\
+\"batch_size\":$(BATCH),\
+\"target_table\":\"es:film_dim\",\
+\"source_query\":\"SELECT id AS film_id, title, rating FROM content.film_work\"}" \
+	| $(JSON_FMT)
+
+api-create-es-film-rating-agg:
+	curl -s -X POST $(PIPES)/ \
+	  -H "Content-Type: application/json" \
+	  -d "{\"name\":\"$(NAME)\",\
+\"description\":\"Demo rating aggregation -> ES\",\
+\"type\":\"ES\",\
+\"mode\":\"full\",\
+\"enabled\":true,\
+\"batch_size\":$(BATCH),\
+\"target_table\":\"es:film_rating_agg\",\
+\"source_query\":\"SELECT r.film_id AS film_id, AVG(r.rating)::float8 AS avg_rating, COUNT(*)::int AS rating_count FROM ugc.ratings r GROUP BY r.film_id\"}" \
+	| $(JSON_FMT)
+
+api-create-es-film-rating-agg-slow:
+	curl -s -X POST $(PIPES)/ \
+	  -H "Content-Type: application/json" \
+	  -d "{\"name\":\"$(NAME)\",\
+\"description\":\"Slow rating aggregation -> ES (sleep per row)\",\
+\"type\":\"ES\",\
+\"mode\":\"full\",\
+\"enabled\":true,\
+\"batch_size\":$(BATCH),\
+\"target_table\":\"es:film_rating_agg\",\
 \"source_query\":\"SELECT * FROM (SELECT r.film_id AS film_id, AVG(r.rating)::float8 AS avg_rating, COUNT(*)::int AS rating_count FROM ugc.ratings r GROUP BY r.film_id) q CROSS JOIN LATERAL (SELECT pg_sleep($(SLEEP))) s\"}" \
 	| $(JSON_FMT)
 

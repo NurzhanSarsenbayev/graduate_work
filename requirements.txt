@@ -9,3 +9,6 @@ pydantic-settings==2.6.1
 
 alembic==1.13.3
 psycopg[binary]==3.2.3
+
+elasticsearch[async]==8.13.2
+aiohttp==3.10.11

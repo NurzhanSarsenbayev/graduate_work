@@ -4,16 +4,16 @@ import asyncio
 import logging
 from typing import NoReturn
 
-import asyncpg
 from sqlalchemy import text
-from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.app.db import async_session_factory
-from src.runner.services import get_active_pipelines, run_pipeline
-from src.runner.services.pipeline_control import recover_stuck_running_on_startup
-from src.runner.services.db_errors import is_db_disconnect
+from src.runner.repos.pipelines import PipelinesRepo
+from src.runner.repos.runs import RunsRepo
 
+from src.app.db import async_session_factory
+
+from src.runner.services.db_errors import is_db_disconnect
+from src.runner.orchestration.manager import PipelineManager
 logger = logging.getLogger("etl_runner")
 
 
@@ -58,26 +58,26 @@ async def wait_for_db(
     raise last_exc  # type: ignore[misc]
 
 
-async def runner_tick() -> None:
-    # 1) одной сессией получаем пайплайны-кандидаты
-    async with async_session_factory() as session:  # type: AsyncSession
-        pipelines = await get_active_pipelines(session)
-
-    if not pipelines:
-        logger.info("No active pipelines (enabled & RUN_REQUESTED/PAUSE_REQUESTED) found")
-        return
-
-    logger.info("Found %d active pipeline(s)", len(pipelines))
-
-    # 2) каждый pipeline — в своей fresh-сессии
-    for pipeline in pipelines:
-        async with async_session_factory() as session:  # type: AsyncSession
-            try:
-                await run_pipeline(session, pipeline)
-            except Exception as exc:
-                if is_db_disconnect(exc):
-                    raise
-                logger.exception("Error while running pipeline id=%s name=%s", pipeline.id, pipeline.name)
+# async def runner_tick() -> None:
+#     # 1) одной сессией получаем пайплайны-кандидаты
+#     async with async_session_factory() as session:  # type: AsyncSession
+#         pipelines = await get_active_pipelines(session)
+#
+#     if not pipelines:
+#         logger.info("No active pipelines (enabled & RUN_REQUESTED/PAUSE_REQUESTED) found")
+#         return
+#
+#     logger.info("Found %d active pipeline(s)", len(pipelines))
+#
+#     # 2) каждый pipeline — в своей fresh-сессии
+#     for pipeline in pipelines:
+#         async with async_session_factory() as session:  # type: AsyncSession
+#             try:
+#                 await run_pipeline(session, pipeline)
+#             except Exception as exc:
+#                 if is_db_disconnect(exc):
+#                     raise
+#                 logger.exception("Error while running pipeline id=%s name=%s", pipeline.id, pipeline.name)
 
 
 async def main_loop(poll_interval: float = 5.0) -> NoReturn:
@@ -88,20 +88,26 @@ async def main_loop(poll_interval: float = 5.0) -> NoReturn:
     await wait_for_db()
     logger.info("Startup checks passed")
 
-    # recovery делаем в отдельной fresh-сессии
+    pipelines_repo = PipelinesRepo()
+    runs_repo = RunsRepo()
+
     async with async_session_factory() as session:  # type: AsyncSession
-        recovered = await recover_stuck_running_on_startup(session)
-        if recovered:
-            logger.warning("Recovered %d stuck RUNNING pipeline(s) after crash", recovered)
+        pipeline_ids = await pipelines_repo.list_stuck_running_ids(session)
+        if pipeline_ids:
+            await pipelines_repo.mark_failed_bulk(session, pipeline_ids)
+            await runs_repo.recover_running_failed_bulk(session, pipeline_ids)
+            logger.warning("Recovered %d stuck RUNNING pipeline(s) after crash", len(pipeline_ids))
         else:
             logger.info("No stuck RUNNING pipelines found (recovery not needed)")
 
     logger.info("Entering main loop with poll_interval=%s seconds", poll_interval)
 
+    manager = PipelineManager(async_session_factory)
+
     # --- main loop ---
     while True:
         try:
-            await runner_tick()
+            await manager.tick()
         except Exception as exc:
             if is_db_disconnect(exc):
                 logger.warning("DB disconnected during tick. Will retry next tick. err=%r", exc)

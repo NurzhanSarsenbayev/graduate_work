@@ -5,7 +5,7 @@ from typing import Sequence
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.app.core.constants import ALLOWED_TARGET_TABLES
+from src.app.core.constants import is_allowed_target
 from src.app.core.enums import PipelineStatus
 from src.app.core.exceptions import (
     PipelineIsRunningError,
@@ -48,8 +48,9 @@ class PipelinesService:
         Валидация бизнес-правил (target_table и т.п.) — здесь,
         репозиторий отвечает только за сохранение.
         """
-        if payload.target_table not in ALLOWED_TARGET_TABLES:
-            # Можно потом вынести в отдельный InvalidTargetTableError
+        target = (payload.target_table or "").strip()
+
+        if not is_allowed_target(payload.target_table):
             raise ValueError(f"target_table '{payload.target_table}' is not allowed")
 
         try:

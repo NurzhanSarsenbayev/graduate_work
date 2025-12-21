@@ -26,7 +26,6 @@ services:
     networks:
       - etl_net
 
-  # Заглушка под будущий Runner (пока можно не запускать)
   etl_runner:
     build:
       context: ..
@@ -35,12 +34,34 @@ services:
       - ../.env
     depends_on:
       - etl_db
+      - elasticsearch
     command: ["python", "-m", "src.runner.main"]
+    environment:
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+    networks:
+      - etl_net
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -s http://localhost:9200 >/dev/null || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
     networks:
       - etl_net
 
 volumes:
   db_data:
+  es_data:
 
 networks:
   etl_net:

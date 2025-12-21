@@ -6,10 +6,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.enums import PipelineStatus
-from src.runner.services.pipeline_control import apply_pause_requested
-from src.runner.services.pipeline_snapshot import PipelineSnapshot
-from src.runner.services.transformers import resolve_transformer
-from src.runner.services.writers import resolve_writer
+from src.runner.adapters.transformers import resolve_transformer
+from src.runner.adapters.writers import resolve_writer
+from src.runner.ports.pipeline import PipelineLike
+from src.runner.repos.pipelines import PipelinesRepo
 
 logger = logging.getLogger("etl_runner")
 
@@ -19,14 +19,14 @@ def _wrap_query_with_limit_offset(base_query: str, limit: int, offset: int) -> s
     return f"SELECT * FROM ({q}) AS src LIMIT {limit} OFFSET {offset}"
 
 
-async def _pause_if_requested(session: AsyncSession, pipeline_id: str) -> bool:
-    res = await session.execute(
-        text("SELECT status FROM etl.etl_pipelines WHERE id = :id"),
-        {"id": pipeline_id},
-    )
-    status = res.scalar_one()
+async def _pause_if_requested(
+    session: AsyncSession,
+    pipeline_id: str,
+    pipelines_repo: PipelinesRepo,
+) -> bool:
+    status = await pipelines_repo.get_status(session, pipeline_id)
     if status == PipelineStatus.PAUSE_REQUESTED.value:
-        await apply_pause_requested(session, pipeline_id)  # commit внутри
+        await pipelines_repo.apply_pause_requested(session, pipeline_id)  # commit внутри
         logger.info("Pause requested: pipeline id=%s -> PAUSED (after batch)", pipeline_id)
         return True
     return False
@@ -34,11 +34,12 @@ async def _pause_if_requested(session: AsyncSession, pipeline_id: str) -> bool:
 
 async def run_sql_full_pipeline(
     session: AsyncSession,
-    pipeline: PipelineSnapshot,
+    pipeline: PipelineLike,
     *,
     run_id: str,  # пока не используется внутри, но контракт одинаковый
+    pipelines_repo: PipelinesRepo,
 ) -> tuple[int, int]:
-    if pipeline.type not in ("SQL", "PYTHON"):
+    if pipeline.type not in ("SQL", "PYTHON", "ES"):
         raise ValueError(f"Unsupported pipeline.type: {pipeline.type}")
     if pipeline.mode != "full":
         raise ValueError(f"Unsupported pipeline.mode: {pipeline.mode}")
@@ -60,7 +61,7 @@ async def run_sql_full_pipeline(
     total_read = 0
     total_written = 0
 
-    transformer = resolve_transformer(pipeline)  # PipelineSnapshot подходит по атрибутам
+    transformer = resolve_transformer(pipeline)
     writer = resolve_writer(pipeline)
 
     while True:
@@ -81,7 +82,7 @@ async def run_sql_full_pipeline(
 
         await session.commit()
 
-        if await _pause_if_requested(session, pipeline.id):
+        if await _pause_if_requested(session, pipeline.id, pipelines_repo):
             return total_read, total_written
 
         offset += batch_size

@@ -23,7 +23,7 @@ class EtlPipeline(Base):
     __tablename__ = "etl_pipelines"
     __table_args__ = (
         CheckConstraint(
-            "type IN ('SQL', 'PYTHON')",
+            "type IN ('SQL', 'PYTHON', 'ES')",
             name="etl_pipelines_type_check",
         ),
         CheckConstraint(

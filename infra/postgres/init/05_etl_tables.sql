@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS etl_pipelines (
     description     TEXT,
 
     -- Тип пайплайна: SQL или PYTHON
-    type            TEXT NOT NULL CHECK (type IN ('SQL', 'PYTHON')),
+    type            TEXT NOT NULL CHECK (type IN ('SQL', 'PYTHON', 'ES')),
 
     -- Для SQL-пайплайнов: базовый запрос-источник
     -- Для PYTHON может быть NULL (логика живёт в python_task)
