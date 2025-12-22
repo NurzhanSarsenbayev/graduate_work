@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
+from . import EtlPipeline
 from .base import Base
 
 
@@ -25,8 +26,10 @@ class EtlState(Base):
         primary_key=True,
     )
 
-    last_processed_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    last_processed_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    last_processed_id: Mapped[Optional[str]] =\
+        mapped_column(Text, nullable=True)
+    last_processed_value: Mapped[Optional[str]] =\
+        mapped_column(Text, nullable=True)
 
     updated_at: Mapped[datetime] = mapped_column(
         nullable=False,

@@ -10,13 +10,16 @@ from src.app.models import EtlPipeline
 from src.runner.orchestration.executor import PipelineExecutor
 from src.runner.repos.pipelines import PipelinesRepo
 from src.runner.services.db_errors import is_db_disconnect
-from src.runner.services.pipeline_snapshot import PipelineSnapshot, snapshot_pipeline
+from src.runner.services.pipeline_snapshot import (
+    PipelineSnapshot, snapshot_pipeline_with_tasks)
+
 
 logger = logging.getLogger("etl_runner")
 
 
 class PipelineDispatcher:
-    """Оркестрация одного пайплайна: pause/claim/retry/execution/final status."""
+    """Оркестрация одного пайплайна:
+    pause/claim/retry/execution/final status."""
 
     def __init__(
         self,
@@ -31,7 +34,10 @@ class PipelineDispatcher:
         self._max_attempts = max_attempts
         self._backoff_seconds = backoff_seconds
 
-    async def dispatch(self, session: AsyncSession, pipeline: EtlPipeline) -> None:
+    async def dispatch(
+            self,
+            session: AsyncSession,
+            pipeline: EtlPipeline) -> None:
         # 1) PAUSE_REQUESTED -> PAUSED
         if pipeline.status == PipelineStatus.PAUSE_REQUESTED.value:
             await self._pipelines.apply_pause_requested(session, pipeline.id)
@@ -39,11 +45,15 @@ class PipelineDispatcher:
 
         # 2) RUN_REQUESTED -> RUNNING (claim)
         if pipeline.status == PipelineStatus.RUN_REQUESTED.value:
-            claimed = await self._pipelines.claim_run_requested(session, pipeline.id)
+            claimed = await self._pipelines.claim_run_requested(
+                session, pipeline.id)
             if claimed is None:
                 return  # другой раннер забрал
 
-            snap: PipelineSnapshot = snapshot_pipeline(claimed)
+            snap: PipelineSnapshot = await snapshot_pipeline_with_tasks(
+                session, claimed)
+            logger.info("Pipeline snapshot: id=%s tasks=%d",
+                        snap.id, len(snap.tasks))
             pid = snap.id
             pname = snap.name
 
@@ -51,17 +61,18 @@ class PipelineDispatcher:
                 try:
                     await self._executor.execute(session, snap)
 
-                    # если пайплайн уже PAUSED (pause обработали внутри sql_*), не трогаем
                     status = await self._pipelines.get_status(session, pid)
                     if status != PipelineStatus.PAUSED.value:
-                        await self._pipelines.set_status(session, pid, PipelineStatus.IDLE.value)
+                        await self._pipelines.set_status(
+                            session, pid, PipelineStatus.IDLE.value)
 
                     return
 
                 except Exception as exc:
                     if is_db_disconnect(exc):
                         logger.warning(
-                            "DB disconnected during pipeline execution. Exit tick; recovery will handle stuck RUNNING. "
+                            "DB disconnected during pipeline execution."
+                            " Exit tick; recovery will handle stuck RUNNING. "
                             "id=%s name=%s attempt=%d/%d err=%r",
                             pid, pname, attempt, self._max_attempts, exc,
                         )
@@ -72,14 +83,17 @@ class PipelineDispatcher:
                             min(attempt - 1, len(self._backoff_seconds) - 1)
                         ]
                         logger.warning(
-                            "Pipeline id=%s name=%s attempt %d/%d FAILED: %r. Retrying in %ss",
-                            pid, pname, attempt, self._max_attempts, exc, delay,
+                            "Pipeline id=%s name=%s "
+                            "attempt %d/%d FAILED: %r. Retrying in %ss",
+                            pid, pname, attempt,
+                            self._max_attempts, exc, delay,
                         )
                         await asyncio.sleep(delay)
                         continue
 
                     logger.error(
-                        "Pipeline id=%s name=%s attempt %d/%d окончательно FAILED: %r",
+                        "Pipeline id=%s name=%s"
+                        " attempt %d/%d окончательно FAILED: %r",
                         pid, pname, attempt, self._max_attempts, exc,
                     )
                     raise

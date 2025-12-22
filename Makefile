@@ -7,6 +7,7 @@ BATCH ?= 100
 NAME  ?= film_dim_sql
 MODE ?= full
 KEY  ?= updated_at
+INC_ID_KEY ?= film_id
 SLEEP ?= 0.2     # секунды pg_sleep на строку
 DELAY ?= 1       # задержка перед pause
 DT    ?= 0.2     # интервал опроса watch
@@ -183,7 +184,7 @@ api-create-python-film-dim:
 \"enabled\":true,\
 \"batch_size\":$(BATCH),\
 \"target_table\":\"analytics.film_dim\",\
-\"python_module\":\"src.pipelines.python_demo.demo_film_dim\",\
+\"python_module\":\"src.pipelines.python_tasks.demo_film_dim\",\
 \"source_query\":\"SELECT id AS film_id, title, rating FROM content.film_work\"}" \
 	| $(JSON_FMT)
 
@@ -252,6 +253,32 @@ api-create-es-film-rating-agg-slow:
 \"source_query\":\"SELECT * FROM (SELECT r.film_id AS film_id, AVG(r.rating)::float8 AS avg_rating, COUNT(*)::int AS rating_count FROM ugc.ratings r GROUP BY r.film_id) q CROSS JOIN LATERAL (SELECT pg_sleep($(SLEEP))) s\"}" \
 	| $(JSON_FMT)
 
+api-create-tasks-film-dim-full:
+	@curl -s -X POST $(PIPES)/ \
+	  -H "Content-Type: application/json" \
+	  -d "{\"name\":\"film_dim_tasks_full\",\
+\"description\":\"film_dim tasks full\",\
+\"type\":\"SQL\",\
+\"mode\":\"full\",\
+\"enabled\":true,\
+\"batch_size\":2,\
+\"target_table\":\"analytics.film_dim\",\
+\"source_query\":\"SELECT 1\"}" | $(JSON_FMT)
+
+api-create-tasks-film-dim-inc:
+	@curl -s -X POST $(PIPES)/ \
+	  -H "Content-Type: application/json" \
+	  -d "{\"name\":\"film_dim_tasks_inc\",\
+\"description\":\"film_dim tasks incremental\",\
+\"type\":\"SQL\",\
+\"mode\":\"incremental\",\
+\"enabled\":true,\
+\"batch_size\":2,\
+\"target_table\":\"analytics.film_dim\",\
+\"source_query\":\"SELECT 1\",\
+\"incremental_key\":\"updated_at\",\
+\"incremental_id_key\":\"film_id\"}" | $(JSON_FMT)
+
 # --------------------
 # DB helpers
 # --------------------
@@ -304,3 +331,23 @@ db-inc-state:
 db-touch-filmwork-one:
 	@$(PSQL) -c "UPDATE content.film_work SET updated_at = NOW() WHERE id = (SELECT id FROM content.film_work ORDER BY updated_at NULLS FIRST, id LIMIT 1);"
 	@echo "touched one film_work.updated_at = NOW()"
+
+db-set-inc-id-key:
+	@test -n "$(ID)" || (echo "Usage: make db-set-inc-id-key ID=<uuid> [INC_ID_KEY=film_id]" && exit 1)
+	@$(PSQL) -c "UPDATE etl.etl_pipelines SET incremental_id_key='$(INC_ID_KEY)' WHERE id='$(ID)';"
+	@$(PSQL) -c "SELECT id, incremental_key, incremental_id_key FROM etl.etl_pipelines WHERE id='$(ID)';"
+
+db-tasks-clear:
+	@test -n "$(ID)" || (echo "Usage: make db-tasks-clear ID=<uuid>" && exit 1)
+	@$(PSQL) -c "DELETE FROM etl.etl_pipeline_tasks WHERE pipeline_id='$(ID)';"
+
+db-tasks-film-dim-full:
+	@test -n "$(ID)" || (echo "Usage: make db-tasks-film-dim-full ID=<uuid>" && exit 1)
+	@$(PSQL) -c "INSERT INTO etl.etl_pipeline_tasks (pipeline_id, order_index, task_type, body, target_table) VALUES ('$(ID)', 1, 'SQL', 'SELECT id AS film_id, title, rating FROM content.film_work', NULL);"
+	@$(PSQL) -c "INSERT INTO etl.etl_pipeline_tasks (pipeline_id, order_index, task_type, body, target_table) VALUES ('$(ID)', 2, 'PYTHON', 'src.pipelines.python_tasks.normalize_title', NULL);"
+
+db-tasks-film-dim-inc:
+	@test -n "$(ID)" || (echo "Usage: make db-tasks-film-dim-inc ID=<uuid>" && exit 1)
+	@$(PSQL) -c "INSERT INTO etl.etl_pipeline_tasks (pipeline_id, order_index, task_type, body, target_table) VALUES ('$(ID)', 1, 'SQL', 'SELECT id AS film_id, title, rating, updated_at FROM content.film_work', NULL);"
+	@$(PSQL) -c "INSERT INTO etl.etl_pipeline_tasks (pipeline_id, order_index, task_type, body, target_table) VALUES ('$(ID)', 2, 'PYTHON', 'src.pipelines.python_tasks.normalize_title', NULL);"
+

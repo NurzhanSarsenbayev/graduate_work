@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.enums import PipelineStatus
 from src.runner.adapters.sql_full import run_sql_full_pipeline
 from src.runner.adapters.sql_incremental import run_sql_incremental_pipeline
+from src.runner.adapters.tasks_full import run_tasks_full
+from src.runner.adapters.tasks_incremental import run_tasks_incremental
+from src.runner.services.task_plan import validate_tasks_v1
+from src.runner.orchestration.context import ExecutionContext
 from src.runner.ports.pipeline import PipelineLike
 from src.runner.repos.pipelines import PipelinesRepo
 from src.runner.repos.runs import RunsRepo
@@ -23,8 +28,13 @@ class ExecutionResult:
     rows_written: int
 
 
+RunnerFn = Callable[[ExecutionContext,
+                     PipelineLike], Awaitable[tuple[int, int]]]
+
+
 class PipelineExecutor:
-    """Исполнение одного пайплайна (создать run -> прогнать ETL -> завершить run)."""
+    """Исполнение одного пайплайна
+     (создать run -> прогнать ETL -> завершить run)."""
 
     def __init__(
         self,
@@ -37,27 +47,27 @@ class PipelineExecutor:
         self._pipelines = pipelines
         self._state = state
 
-    async def execute(self, session: AsyncSession, pipeline: PipelineLike) -> ExecutionResult:
+        # mode -> runner strategy
+        self._strategies: dict[str, RunnerFn] = {
+            "full": run_sql_full_pipeline,
+            "incremental": run_sql_incremental_pipeline,
+        }
+
+    async def execute(
+            self,
+            session: AsyncSession,
+            pipeline: PipelineLike) -> ExecutionResult:
         run_id = await self._runs.start_run(session, pipeline_id=pipeline.id)
+        ctx = ExecutionContext(
+            session=session,
+            run_id=run_id,
+            runs=self._runs,
+            pipelines=self._pipelines,
+            state=self._state,
+        )
 
         try:
-            if pipeline.mode == "full" and pipeline.type in ("SQL", "PYTHON", "ES"):
-                rows_read, rows_written = await run_sql_full_pipeline(
-                    session,
-                    pipeline,
-                    run_id=run_id,
-                    pipelines_repo=self._pipelines,
-                )
-            elif pipeline.mode == "incremental" and pipeline.type in ("SQL", "PYTHON", "ES"):
-                rows_read, rows_written = await run_sql_incremental_pipeline(
-                    session,
-                    pipeline,
-                    run_id=run_id,
-                    pipelines_repo=self._pipelines,
-                    state_repo=self._state,
-                )
-            else:
-                raise ValueError(f"Unsupported pipeline: type={pipeline.type!r}, mode={pipeline.mode!r}")
+            rows_read, rows_written = await self._run_body(ctx, pipeline)
 
             await self._runs.finish_success(
                 session,
@@ -65,12 +75,14 @@ class PipelineExecutor:
                 rows_read=int(rows_read),
                 rows_written=int(rows_written),
             )
-            return ExecutionResult(rows_read=int(rows_read), rows_written=int(rows_written))
+            return ExecutionResult(rows_read=int(rows_read),
+                                   rows_written=int(rows_written))
 
         except Exception as exc:
             if is_db_disconnect(exc):
                 logger.warning(
-                    "DB disconnected during execution. Leaving pipeline RUNNING for recovery. "
+                    "DB disconnected during execution."
+                    " Leaving pipeline RUNNING for recovery. "
                     "id=%s name=%s err=%r",
                     pipeline.id, getattr(pipeline, "name", pipeline.id), exc,
                 )
@@ -79,6 +91,30 @@ class PipelineExecutor:
             await session.rollback()
 
             err_text = repr(exc)
-            await self._runs.finish_failed(session, run_id=run_id, error_message=err_text)
-            await self._pipelines.set_status(session, pipeline.id, PipelineStatus.FAILED.value)
+            await self._runs.finish_failed(session,
+                                           run_id=run_id,
+                                           error_message=err_text)
+            await self._pipelines.set_status(session,
+                                             pipeline.id,
+                                             PipelineStatus.FAILED.value)
             raise
+
+    async def _run_body(
+            self,
+            ctx: ExecutionContext,
+            pipeline: PipelineLike) -> tuple[int, int]:
+        tasks = getattr(pipeline, "tasks", ())
+        if tasks:
+            # здесь pipeline = PipelineSnapshot (по факту)
+            snap = validate_tasks_v1(pipeline)  # type: ignore[arg-type]
+
+            if snap.mode == "full":
+                return await run_tasks_full(ctx, snap)
+            if snap.mode == "incremental":
+                return await run_tasks_incremental(ctx, snap)
+            raise ValueError(f"Unsupported pipeline.mode: {snap.mode!r}")
+
+        runner = self._strategies.get(pipeline.mode)
+        if runner is None:
+            raise ValueError(f"Unsupported pipeline.mode: {pipeline.mode!r}")
+        return await runner(ctx, pipeline)

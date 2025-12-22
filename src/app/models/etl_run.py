@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from src.app.core.enums import RunStatus
+from . import EtlPipeline
 from .base import Base
 
 

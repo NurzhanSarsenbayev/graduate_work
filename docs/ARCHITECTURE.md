@@ -109,6 +109,15 @@ Runner получает ES URL через env:
 - `enabled`
 - `status` (см. state machine)
 
+Примечание:
+
+Пайплайн может быть исполнен в двух режимах конфигурации:
+
+- **Legacy mode** — используется `source_query` пайплайна
+- **Tasks mode** — используется связанный task plan (`etl_pipeline_tasks`)
+
+Если task plan присутствует, он имеет приоритет над `source_query`.
+
 ## 4.2. Разрешённые sink-цели
 
 Платформа намеренно ограничивает “куда можно писать”, чтобы не дать пайплайном случайно писать в любую таблицу/индекс.
@@ -119,6 +128,53 @@ Runner получает ES URL через env:
 - `ES_TARGET_PREFIX = "es:"`
 - `ALLOWED_ES_INDEXES` — допустимые индексы ES (например `film_dim`, `film_rating_agg`)
 - `is_allowed_target(target: str) -> bool` — единая проверка (используется API и writer-логикой)
+
+## 4.3. Pipeline Tasks (v1)
+
+Начиная с версии v1, пайплайн может быть описан **не только одним `source_query`**,  
+но и **планом выполнения (task plan)** — линейной последовательностью шагов.
+
+Если у пайплайна определены связанные tasks (`etl.etl_pipeline_tasks`), то:
+- `source_query` используется **только как legacy fallback**
+- фактическое исполнение определяется **task plan’ом**
+- Runner игнорирует `source_query` и исполняет pipeline через tasks
+
+### Task plan (v1)
+
+Task plan — это **упорядоченный список шагов**, связанных с пайплайном.
+
+Ограничения v1 (осознанный MVP):
+
+- шаги выполняются **строго последовательно**
+- **первый шаг — SQL reader**
+- остальные шаги — **Python transforms**
+- DAG, branching и fan-out **не поддерживаются**
+- pipeline остаётся **одним execution unit**
+
+Таким образом, tasks v1 — это не workflow-оркестратор,  
+а **расширяемый execution-план внутри одного пайплайна**.
+
+### Пример (conceptual)
+
+[ SQL reader ] → [ Python transform ] → [ Python transform ] → sink
+
+Sink определяется:
+- либо `pipeline.target_table`
+- либо `task.target_table` **только у последнего шага**
+
+### Валидация task plan
+
+Перед выполнением pipeline с tasks Runner выполняет строгую валидацию:
+
+- порядок шагов (`order_index`)
+- уникальность шагов
+- непустые `task_type` и `body`
+- первый шаг — SQL
+- последующие шаги — только PYTHON
+- `target_table` может быть переопределён **только последним шагом**
+- итоговый target проходит проверку через `is_allowed_target`
+
+Если контракт нарушен, execution **не начинается**.
 
 ---
 
@@ -188,6 +244,30 @@ Runner организован как OOP-оркестрация:
   - читает `etl_state` (checkpoint)
   - выбирает следующий batch по `(incremental_key, incremental_id_key)`
   - после batch обновляет state и делает commit
+  - 
+Особенность incremental execution с tasks:
+
+Checkpoint (`etl_state`) вычисляется **по результату SQL reader**,
+а не по данным после Python transforms.
+
+Это гарантирует:
+- корректный курсор инкремента
+- воспроизводимость выполнения
+- независимость state от бизнес-логики трансформаций
+
+PipelineExecutor также отвечает за выбор стратегии исполнения
+в зависимости от конфигурации пайплайна:
+
+- если у пайплайна **нет tasks**:
+  - используется legacy execution
+  - `sql_full` или `sql_incremental`
+
+- если у пайплайна **есть tasks**:
+  - выполняется валидация task plan (v1 contract)
+  - используется `tasks_full` или `tasks_incremental`
+
+Таким образом, Executor является **единственной точкой**, где
+сходятся все варианты исполнения ETL.
 
 Executor также отвечает за корректное завершение `etl_runs` (успех/ошибка) и приводит pipeline status к финальному состоянию (IDLE/FAILED/PAUSED) согласно правилам.
 

@@ -56,7 +56,8 @@ class PostgresWriter:
                 """
             )
             payload = [
-                {"film_id": r["film_id"], "title": r["title"], "rating": r.get("rating")}
+                {"film_id": r["film_id"],
+                 "title": r["title"], "rating": r.get("rating")}
                 for r in rows
             ]
             await session.execute(insert_sql, payload)
@@ -65,7 +66,8 @@ class PostgresWriter:
         if target == "analytics.film_rating_agg":
             insert_sql = text(
                 """
-                INSERT INTO analytics.film_rating_agg (film_id, avg_rating, rating_count)
+                INSERT INTO analytics.film_rating_agg
+                 (film_id, avg_rating, rating_count)
                 VALUES (:film_id, :avg_rating, :rating_count)
                 ON CONFLICT (film_id) DO UPDATE
                 SET
@@ -85,7 +87,8 @@ class PostgresWriter:
             await session.execute(insert_sql, payload)
             return len(payload)
 
-        raise ValueError(f"Unsupported target_table for PostgresWriter: {target}")
+        raise ValueError(f"Unsupported target_table"
+                         f" for PostgresWriter: {target}")
 
 
 # ----------------------------
@@ -136,11 +139,13 @@ class ElasticsearchWriter:
         # target_table вида "es:film_dim"
         if not target_table.startswith(ES_TARGET_PREFIX):
             raise ValueError(
-                f"ES writer expects target_table starting with {ES_TARGET_PREFIX!r}, got {target_table!r}"
+                f"ES writer expects target_table starting "
+                f"with {ES_TARGET_PREFIX!r}, got {target_table!r}"
             )
         idx = target_table.removeprefix(ES_TARGET_PREFIX).strip()
         if not idx:
-            raise ValueError("ES index is empty. Use target_table like 'es:film_dim'")
+            raise ValueError("ES index is empty."
+                             " Use target_table like 'es:film_dim'")
         return idx
 
     def _id_field_for_index(self, index: str) -> str:
@@ -154,7 +159,8 @@ class ElasticsearchWriter:
                 "mappings": {
                     "properties": {
                         "film_id": {"type": "keyword"},
-                        "title": {"type": "text", "fields": {"raw": {"type": "keyword"}}},
+                        "title": {"type": "text",
+                                  "fields": {"raw": {"type": "keyword"}}},
                         "rating": {"type": "float"},
                     }
                 }
@@ -174,13 +180,20 @@ class ElasticsearchWriter:
         # На всякий: динамика
         return {"mappings": {"dynamic": True}}
 
-    async def _ensure_index(self, client: AsyncElasticsearch, index: str) -> None:
+    async def _ensure_index(
+            self,
+            client: AsyncElasticsearch,
+            index: str) -> None:
         if await client.indices.exists(index=index):
             return
         body = self._mappings_for_index(index)
         await client.indices.create(index=index, **body)
 
-    async def write(self, session: AsyncSession, pipeline: PipelineLike, rows: list[dict]) -> int:
+    async def write(
+            self,
+            session: AsyncSession,
+            pipeline: PipelineLike,
+            rows: list[dict]) -> int:
         if not rows:
             return 0
 
@@ -211,7 +224,8 @@ class ElasticsearchWriter:
 
                 if id_field not in r:
                     raise ValueError(
-                        f"ES writer ожидает поле {id_field!r} в строке. Row keys={list(r.keys())}"
+                        f"ES writer ожидает поле {id_field!r} "
+                        f"в строке. Row keys={list(r.keys())}"
                     )
 
                 _id = str(r[id_field])
@@ -225,11 +239,13 @@ class ElasticsearchWriter:
                 items = resp.get("items") or []
                 first_err = None
                 for it in items:
-                    v = it.get("update") or it.get("index") or it.get("create") or it.get("delete")
+                    v = (it.get("update") or it.get("index")
+                         or it.get("create") or it.get("delete"))
                     if v and v.get("error"):
                         first_err = v
                         break
-                raise RuntimeError(f"Elasticsearch bulk errors=True. first_error={first_err!r}")
+                raise RuntimeError(f"Elasticsearch bulk errors=True."
+                                   f" first_error={first_err!r}")
 
             return len(rows)
         finally:

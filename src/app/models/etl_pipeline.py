@@ -14,6 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from src.app.core.enums import PipelineStatus
+from . import EtlRun, EtlState, EtlPipelineTask
 from .base import Base
 
 
@@ -31,7 +32,8 @@ class EtlPipeline(Base):
             name="etl_pipelines_mode_check",
         ),
         CheckConstraint(
-            "status IN ('IDLE','RUN_REQUESTED', 'RUNNING', 'PAUSE_REQUESTED', 'PAUSED', 'FAILED')",
+            "status IN ('IDLE','RUN_REQUESTED',"
+            " 'RUNNING', 'PAUSE_REQUESTED', 'PAUSED', 'FAILED')",
             name="etl_pipelines_status_check",
         ),
         {"schema": "etl"},
@@ -67,11 +69,11 @@ class EtlPipeline(Base):
         default="full",
     )
 
-    # incremental: primary cursor column (обычно timestamp/updated_at)
-    incremental_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    incremental_key: Mapped[Optional[str]] = (
+        mapped_column(Text, nullable=True))
 
-    # incremental: tie-breaker key (обычно film_id / id). ВАЖНО: убирает хардкод.
-    incremental_id_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    incremental_id_key: Mapped[Optional[str]] = (
+        mapped_column(Text, nullable=True))
 
     batch_size: Mapped[int] = mapped_column(
         Integer,

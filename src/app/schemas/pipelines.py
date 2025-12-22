@@ -87,4 +87,3 @@ class PipelineRunOut(BaseModel):
     rows_read: int
     rows_written: int
     error_message: str | None = None
-

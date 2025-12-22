@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from sqlalchemy import select,update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import uuid4
 
 from src.app.models import EtlPipeline, EtlRun
 from src.app.core.exceptions import PipelineNotFoundError
 from src.app.core.enums import PipelineStatus
+
 
 class SQLPipelinesRepository:
     """Репозиторий для работы с пайплайнами и запусками.
@@ -19,12 +20,17 @@ class SQLPipelinesRepository:
     - единообразный контракт (всегда возвращает объект или кидает ошибку).
     """
 
-    async def list_pipelines(self, session: AsyncSession) -> Sequence[EtlPipeline]:
+    async def list_pipelines(
+            self,
+            session: AsyncSession) -> Sequence[EtlPipeline]:
         stmt = select(EtlPipeline).order_by(EtlPipeline.name)
         result = await session.execute(stmt)
         return result.scalars().all()
 
-    async def get_pipeline(self, session: AsyncSession, pipeline_id: str) -> EtlPipeline:
+    async def get_pipeline(
+            self,
+            session: AsyncSession,
+            pipeline_id: str) -> EtlPipeline:
         stmt = select(EtlPipeline).where(EtlPipeline.id == pipeline_id)
         result = await session.execute(stmt)
         pipeline = result.scalar_one_or_none()
@@ -34,8 +40,12 @@ class SQLPipelinesRepository:
 
         return pipeline
 
-    async def create_pipeline(self, session: AsyncSession, payload) -> EtlPipeline:
-        """Создать новый ETL пайплайн — без бизнес-валидации (валидация должна быть в сервисе)."""
+    async def create_pipeline(
+            self,
+            session: AsyncSession,
+            payload) -> EtlPipeline:
+        """Создать новый ETL пайплайн
+         — без бизнес-валидации (валидация должна быть в сервисе)."""
 
         pipeline = EtlPipeline(
             id=str(uuid4()),
@@ -103,8 +113,12 @@ class SQLPipelinesRepository:
         result = await session.execute(stmt)
         return result.scalars().all()
 
-    async def request_run(self, session: AsyncSession, pipeline_id: str) -> EtlPipeline | None:
-        """Атомарно перевести пайплайн в RUN_REQUESTED, если он в разрешённом статусе.
+    async def request_run(
+            self,
+            session: AsyncSession,
+            pipeline_id: str) -> EtlPipeline | None:
+        """Атомарно перевести пайплайн в RUN_REQUESTED,
+         если он в разрешённом статусе.
         Возвращает обновлённый объект или None, если переход не выполнен.
         """
         allowed_from = (
@@ -133,14 +147,18 @@ class SQLPipelinesRepository:
         await session.refresh(updated)
         return updated
 
-    async def request_pause(self, session: AsyncSession, pipeline_id: str) -> EtlPipeline | None:
-        """Атомарно перевести пайплайн в PAUSE_REQUESTED, если он в разрешённом статусе.
+    async def request_pause(
+            self,
+            session: AsyncSession,
+            pipeline_id: str) -> EtlPipeline | None:
+        """Атомарно перевести пайплайн в PAUSE_REQUESTED,
+         если он в разрешённом статусе.
         Возвращает обновлённый объект или None.
         """
         allowed_from = (
             PipelineStatus.RUNNING.value,
             PipelineStatus.RUN_REQUESTED.value,
-            PipelineStatus.IDLE.value,  # опционально: чтобы можно было поставить паузу до старта
+            PipelineStatus.IDLE.value,
         )
 
         stmt = (
@@ -162,9 +180,13 @@ class SQLPipelinesRepository:
         await session.refresh(updated)
         return updated
 
-    async def claim_run_requested(self, session: AsyncSession, pipeline_id: str) -> bool:
+    async def claim_run_requested(
+            self,
+            session: AsyncSession,
+            pipeline_id: str) -> bool:
         """Claim step для runner: RUN_REQUESTED -> RUNNING.
-        True если мы захватили пайплайн, False если уже захвачен/не в том статусе.
+        True если мы захватили пайплайн,
+        False если уже захвачен/не в том статусе.
         """
         stmt = (
             update(EtlPipeline)

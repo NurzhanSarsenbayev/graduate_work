@@ -3,8 +3,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.runner.orchestration.dispatcher import PipelineDispatcher
 from src.runner.orchestration.executor import PipelineExecutor
 
@@ -24,7 +22,8 @@ class TickResult:
 
 
 class PipelineManager:
-    """Оркестратор одного 'тика' раннера: найти кандидатов и обработать каждый в fresh-сессии."""
+    """Оркестратор одного 'тика' раннера:
+     найти кандидатов и обработать каждый в fresh-сессии."""
 
     def __init__(self, session_factory) -> None:
         self._session_factory = session_factory
@@ -35,7 +34,9 @@ class PipelineManager:
         self._state = StateRepo()
 
         # executor + dispatcher
-        self._executor = PipelineExecutor(runs=self._runs, pipelines=self._pipelines, state=self._state)
+        self._executor = PipelineExecutor(runs=self._runs,
+                                          pipelines=self._pipelines,
+                                          state=self._state)
         self._dispatcher = PipelineDispatcher(
             executor=self._executor,
             pipelines=self._pipelines,
@@ -47,7 +48,8 @@ class PipelineManager:
             pipelines = await self._pipelines.get_active(session)
 
         if not pipelines:
-            logger.info("No active pipelines (enabled & RUN_REQUESTED/PAUSE_REQUESTED) found")
+            logger.info("No active pipelines "
+                        "(enabled & RUN_REQUESTED/PAUSE_REQUESTED) found")
             return TickResult(pipelines_found=0, pipelines_processed=0)
 
         logger.info("Found %d active pipeline(s)", len(pipelines))
@@ -56,7 +58,7 @@ class PipelineManager:
 
         # 2) каждый pipeline — в своей fresh-сессии
         for pipeline in pipelines:
-            async with self._session_factory() as session:  # type: AsyncSession
+            async with self._session_factory() as session:
                 try:
                     await self._dispatcher.dispatch(session, pipeline)
                     processed += 1
@@ -69,4 +71,5 @@ class PipelineManager:
                         getattr(pipeline, "name", "?"),
                     )
 
-        return TickResult(pipelines_found=len(pipelines), pipelines_processed=processed)
+        return TickResult(pipelines_found=len(pipelines),
+                          pipelines_processed=processed)

@@ -8,7 +8,8 @@ def is_db_disconnect(exc: BaseException) -> bool:
     # SQLAlchemy wrappers
     if isinstance(exc, (OperationalError, InterfaceError)):
         return True
-    if isinstance(exc, DBAPIError) and getattr(exc, "connection_invalidated", False):
+    if (isinstance(exc, DBAPIError) and
+            getattr(exc, "connection_invalidated", False)):
         return True
 
     # asyncpg / OS-level

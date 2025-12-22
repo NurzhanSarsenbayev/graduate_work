@@ -13,6 +13,7 @@ ALLOWED_ES_INDEXES: set[str] = {
     "film_rating_agg",
 }
 
+
 def is_allowed_target(target: str) -> bool:
     target = (target or "").strip()
 

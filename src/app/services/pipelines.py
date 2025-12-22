@@ -48,10 +48,10 @@ class PipelinesService:
         Валидация бизнес-правил (target_table и т.п.) — здесь,
         репозиторий отвечает только за сохранение.
         """
-        target = (payload.target_table or "").strip()
 
         if not is_allowed_target(payload.target_table):
-            raise ValueError(f"target_table '{payload.target_table}' is not allowed")
+            raise ValueError(f"target_table "
+                             f"'{payload.target_table}' is not allowed")
 
         try:
             return await self.repo.create_pipeline(self.session, payload)
@@ -59,7 +59,8 @@ class PipelinesService:
             # Откатываем транзакцию
             await self.session.rollback()
 
-            # На этом уровне считаем, что основная причина IntegrityError — дубликат имени.
+            # На этом уровне считаем,
+            # что основная причина IntegrityError — дубликат имени.
             # Если потом появятся другие уникальные ограничения, можно будет
             # добавить более тонкое разруливание.
             raise PipelineNameAlreadyExistsError(
@@ -116,14 +117,16 @@ class PipelinesService:
         pipeline = await self.get_pipeline(pipeline_id)
 
         if pipeline.status == PipelineStatus.RUNNING.value:
-            raise PipelineIsRunningError("Cannot update pipeline while it is RUNNING")
+            raise PipelineIsRunningError(
+                "Cannot update pipeline while it is RUNNING")
 
         updated = await self.repo.update_pipeline(
             session=self.session,
             pipeline_id=pipeline_id,
             data=update_data,
         )
-        # repo.update_pipeline либо вернёт объект, либо кинет свою ошибку, если там что-то пойдёт не так.
+        # repo.update_pipeline либо вернёт объект,
+        # либо кинет свою ошибку, если там что-то пойдёт не так.
         if updated is None:
             # На всякий случай, если репо вернуло None (гонки и т.п.)
             raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found")

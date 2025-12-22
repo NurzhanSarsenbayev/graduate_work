@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from sqlalchemy.ext.asyncio import AsyncConnection
 
 from src.config import get_settings
 from src.app.db import engine
@@ -9,6 +8,7 @@ settings = get_settings()
 
 app = FastAPI(title="ETL Platform API", version="0.1.0")
 app.include_router(pipelines_router)
+
 
 @app.on_event("startup")
 async def on_startup() -> None:
@@ -33,4 +33,3 @@ async def healthcheck() -> dict:
         "db": "ok",  # позже можно реально проверять запросом
         "env": settings.app_env,
     }
-

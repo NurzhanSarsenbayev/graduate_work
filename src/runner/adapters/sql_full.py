@@ -3,42 +3,44 @@ from __future__ import annotations
 import logging
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.enums import PipelineStatus
 from src.runner.adapters.transformers import resolve_transformer
 from src.runner.adapters.writers import resolve_writer
 from src.runner.ports.pipeline import PipelineLike
-from src.runner.repos.pipelines import PipelinesRepo
+from src.runner.orchestration.context import ExecutionContext
 
 logger = logging.getLogger("etl_runner")
 
 
-def _wrap_query_with_limit_offset(base_query: str, limit: int, offset: int) -> str:
+def _wrap_query_with_limit_offset(
+        base_query: str,
+        limit: int,
+        offset: int) -> str:
     q = base_query.strip().rstrip(";")
     return f"SELECT * FROM ({q}) AS src LIMIT {limit} OFFSET {offset}"
 
 
 async def _pause_if_requested(
-    session: AsyncSession,
+    ctx: ExecutionContext,
     pipeline_id: str,
-    pipelines_repo: PipelinesRepo,
 ) -> bool:
-    status = await pipelines_repo.get_status(session, pipeline_id)
+    status = await ctx.pipelines.get_status(ctx.session, pipeline_id)
     if status == PipelineStatus.PAUSE_REQUESTED.value:
-        await pipelines_repo.apply_pause_requested(session, pipeline_id)  # commit внутри
-        logger.info("Pause requested: pipeline id=%s -> PAUSED (after batch)", pipeline_id)
+        await ctx.pipelines.apply_pause_requested(
+            ctx.session, pipeline_id)  # commit внутри
+        logger.info("Pause requested:"
+                    " pipeline id=%s -> PAUSED (after batch)", pipeline_id)
         return True
     return False
 
 
 async def run_sql_full_pipeline(
-    session: AsyncSession,
+    ctx: ExecutionContext,
     pipeline: PipelineLike,
-    *,
-    run_id: str,  # пока не используется внутри, но контракт одинаковый
-    pipelines_repo: PipelinesRepo,
 ) -> tuple[int, int]:
+    session = ctx.session
+
     if pipeline.type not in ("SQL", "PYTHON", "ES"):
         raise ValueError(f"Unsupported pipeline.type: {pipeline.type}")
     if pipeline.mode != "full":
@@ -65,7 +67,8 @@ async def run_sql_full_pipeline(
     writer = resolve_writer(pipeline)
 
     while True:
-        batch_query = _wrap_query_with_limit_offset(pipeline.source_query, batch_size, offset)
+        batch_query = _wrap_query_with_limit_offset(
+            pipeline.source_query, batch_size, offset)
         src_result = await session.execute(text(batch_query))
         rows = src_result.mappings().all()
 
@@ -82,7 +85,7 @@ async def run_sql_full_pipeline(
 
         await session.commit()
 
-        if await _pause_if_requested(session, pipeline.id, pipelines_repo):
+        if await _pause_if_requested(ctx, pipeline.id):
             return total_read, total_written
 
         offset += batch_size

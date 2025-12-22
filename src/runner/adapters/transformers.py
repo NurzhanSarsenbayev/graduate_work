@@ -7,25 +7,36 @@ from typing import Protocol
 
 from src.runner.ports.pipeline import PipelineLike
 
+
 class Transformer(Protocol):
-    async def transform(self, pipeline: PipelineLike, rows: list[dict]) -> list[dict]: ...
+    async def transform(
+            self,
+            pipeline: PipelineLike,
+            rows: list[dict]) -> list[dict]: ...
 
 
 class NoOpTransformer:
-    async def transform(self, pipeline: PipelineLike, rows: list[dict]) -> list[dict]:
+    async def transform(self,
+                        pipeline: PipelineLike,
+                        rows: list[dict]) -> list[dict]:
         return rows
+
 
 @dataclass(frozen=True)
 class PythonCallableTransformer:
     dotted_path: str
     fn_name: str = "transform"
 
-    async def transform(self, pipeline: PipelineLike, rows: list[dict]) -> list[dict]:
+    async def transform(
+            self,
+            pipeline: PipelineLike,
+            rows: list[dict]) -> list[dict]:
         module = importlib.import_module(self.dotted_path)
         fn = getattr(module, self.fn_name, None)
         if fn is None:
             raise ValueError(
-                f"Python transformer not found: {self.dotted_path}.{self.fn_name}()"
+                f"Python transformer not found:"
+                f" {self.dotted_path}.{self.fn_name}()"
             )
 
         result = fn(rows, pipeline=pipeline)
@@ -35,9 +46,11 @@ class PythonCallableTransformer:
 
         if not isinstance(result, list):
             raise ValueError(
-                f"Python transformer must return list[dict], got {type(result)}"
+                f"Python transformer must return list[dict],"
+                f" got {type(result)}"
             )
         return result
+
 
 def resolve_transformer(pipeline: PipelineLike) -> Transformer:
     # 1) не PYTHON — просто пропускаем

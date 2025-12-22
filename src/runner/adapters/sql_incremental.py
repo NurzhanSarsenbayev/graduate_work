@@ -4,39 +4,36 @@ import logging
 from datetime import datetime
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.enums import PipelineStatus
 from src.runner.adapters.transformers import resolve_transformer
 from src.runner.adapters.writers import resolve_writer
 from src.runner.ports.pipeline import PipelineLike
-from src.runner.repos.pipelines import PipelinesRepo
-from src.runner.repos.state import StateRepo
+from src.runner.orchestration.context import ExecutionContext
 
 logger = logging.getLogger("etl_runner")
 
 
 async def _pause_if_requested(
-    session: AsyncSession,
+    ctx: ExecutionContext,
     pipeline_id: str,
-    pipelines_repo: PipelinesRepo,
 ) -> bool:
-    status = await pipelines_repo.get_status(session, pipeline_id)
+    status = await ctx.pipelines.get_status(ctx.session, pipeline_id)
     if status == PipelineStatus.PAUSE_REQUESTED.value:
-        await pipelines_repo.apply_pause_requested(session, pipeline_id)  # commit внутри
-        logger.info("Pause requested: pipeline id=%s -> PAUSED (after batch)", pipeline_id)
+        await ctx.pipelines.apply_pause_requested(
+            ctx.session, pipeline_id)  # commit внутри
+        logger.info("Pause requested:"
+                    " pipeline id=%s -> PAUSED (after batch)", pipeline_id)
         return True
     return False
 
 
 async def run_sql_incremental_pipeline(
-    session: AsyncSession,
+    ctx: ExecutionContext,
     pipeline: PipelineLike,
-    *,
-    run_id: str,
-    pipelines_repo: PipelinesRepo,
-    state_repo: StateRepo,
 ) -> tuple[int, int]:
+    session = ctx.session
+    state_repo = ctx.state
     ptype = pipeline.type
     mode = pipeline.mode
 
@@ -67,13 +64,19 @@ async def run_sql_incremental_pipeline(
 
     try:
         state = await state_repo.get(session, pid)
-        last_ts_raw = state.last_processed_value if state and state.last_processed_value else None
-        last_id = state.last_processed_id if state and state.last_processed_id else None
+        last_ts_raw = state.last_processed_value\
+            if state and state.last_processed_value else None
+        last_id = state.last_processed_id\
+            if state and state.last_processed_id else None
 
         last_ts = datetime.fromisoformat(last_ts_raw) if last_ts_raw else None
 
+        if last_ts is not None and last_id is None:
+            raise ValueError("Incremental state is missing last_processed_id")
+
         logger.info(
-            "INC start: pipeline=%s batch_size=%s inc_key=%s id_key=%s last_ts=%s last_id=%s",
+            "INC start: pipeline=%s batch_size=%s"
+            " inc_key=%s id_key=%s last_ts=%s last_id=%s",
             pname, batch_size, inc_key, id_key, last_ts, last_id,
         )
 
@@ -95,12 +98,15 @@ async def run_sql_incremental_pipeline(
                 ORDER BY src.{inc_key}, src.{id_key}
                 LIMIT :limit
                 """
-                params = {"last_ts": last_ts, "last_id": last_id, "limit": batch_size}
+                params = {"last_ts": last_ts,
+                          "last_id": last_id,
+                          "limit": batch_size}
 
             res = await session.execute(text(batch_sql), params)
             src_rows = res.mappings().all()
 
-            logger.info("INC batch fetched: pipeline=%s rows=%d", pname, len(src_rows))
+            logger.info("INC batch fetched:"
+                        " pipeline=%s rows=%d", pname, len(src_rows))
 
             if not src_rows:
                 logger.info("INC done: pipeline=%s (no more rows)", pname)
@@ -116,9 +122,11 @@ async def run_sql_incremental_pipeline(
 
             tail = src_rows[-1]
             if inc_key not in tail:
-                raise ValueError(f"Row does not contain incremental_key={inc_key!r}")
+                raise ValueError(f"Row does not"
+                                 f" contain incremental_key={inc_key!r}")
             if id_key not in tail:
-                raise ValueError(f"Row does not contain incremental_id_key={id_key!r}")
+                raise ValueError(f"Row does not"
+                                 f" contain incremental_id_key={id_key!r}")
 
             last_ts = tail[inc_key]
             last_id = str(tail[id_key])
@@ -128,16 +136,19 @@ async def run_sql_incremental_pipeline(
                 pname, last_ts, last_id,
             )
 
-            last_ts_str = last_ts.isoformat() if hasattr(last_ts, "isoformat") else str(last_ts)
-            await state_repo.upsert(session, pid, last_value=last_ts_str, last_id=last_id)
+            last_ts_str = last_ts.isoformat()\
+                if hasattr(last_ts, "isoformat") else str(last_ts)
+            await state_repo.upsert(
+                session, pid, last_value=last_ts_str, last_id=last_id)
 
             await session.commit()
 
-            if await _pause_if_requested(session, pid, pipelines_repo):
+            if await _pause_if_requested(ctx, pid):
                 return total_read, total_written
 
         return total_read, total_written
 
     except Exception:
-        logger.exception("Incremental pipeline failed id=%s name=%s", pid, pname)
+        logger.exception("Incremental pipeline"
+                         " failed id=%s name=%s", pid, pname)
         raise

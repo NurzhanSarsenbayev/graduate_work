@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: etl_user
       POSTGRES_PASSWORD: etl_password
     ports:
-      - "5432:5432"
+      - "15432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d

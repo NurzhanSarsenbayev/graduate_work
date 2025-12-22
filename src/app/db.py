@@ -14,10 +14,10 @@ settings = get_settings()
 # Асинхронный движок SQLAlchemy
 engine: AsyncEngine = create_async_engine(
     settings.database_url,
-    echo=False,        # можно включить True для дебага SQL
+    echo=False,
     future=True,
-    pool_pre_ping=True,  # <-- критично, чтобы не отдавал "мертвые" коннекты из пула
-    pool_recycle=1800,  # <-- опционально, но полезно
+    pool_pre_ping=True,
+    pool_recycle=1800,
 )
 
 # Фабрика сессий

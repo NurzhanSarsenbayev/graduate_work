@@ -36,7 +36,9 @@ async def get_pipeline_endpoint(
     return await get_pipeline_or_404(service, pipeline_id)
 
 
-@router.post("/", response_model=PipelineOut, status_code=status.HTTP_201_CREATED)
+@router.post("/",
+             response_model=PipelineOut,
+             status_code=status.HTTP_201_CREATED)
 async def create_pipeline_endpoint(
     payload: PipelineCreate,
     service: PipelinesService = Depends(get_pipelines_service),

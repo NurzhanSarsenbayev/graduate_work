@@ -32,7 +32,11 @@ class PipelinesRepo:
         )
         return res.scalar_one()
 
-    async def set_status(self, session: AsyncSession, pipeline_id: str, status: str) -> None:
+    async def set_status(
+            self,
+            session: AsyncSession,
+            pipeline_id: str,
+            status: str) -> None:
         stmt = (
             update(EtlPipeline)
             .where(EtlPipeline.id == pipeline_id)
@@ -41,7 +45,10 @@ class PipelinesRepo:
         await session.execute(stmt)
         await session.commit()
 
-    async def claim_run_requested(self, session: AsyncSession, pipeline_id: str) -> EtlPipeline | None:
+    async def claim_run_requested(
+            self,
+            session: AsyncSession,
+            pipeline_id: str) -> EtlPipeline | None:
         stmt = (
             update(EtlPipeline)
             .where(EtlPipeline.id == pipeline_id)
@@ -55,7 +62,10 @@ class PipelinesRepo:
             await session.commit()
         return claimed
 
-    async def apply_pause_requested(self, session: AsyncSession, pipeline_id: str) -> bool:
+    async def apply_pause_requested(
+            self,
+            session: AsyncSession,
+            pipeline_id: str) -> bool:
         stmt = (
             update(EtlPipeline)
             .where(EtlPipeline.id == pipeline_id)
@@ -71,11 +81,15 @@ class PipelinesRepo:
 
     async def list_stuck_running_ids(self, session: AsyncSession) -> list[str]:
         res = await session.execute(
-            select(EtlPipeline.id).where(EtlPipeline.status == PipelineStatus.RUNNING.value)
+            select(EtlPipeline.id).where(EtlPipeline.status
+                                         == PipelineStatus.RUNNING.value)
         )
         return [row[0] for row in res.all()]
 
-    async def mark_failed_bulk(self, session: AsyncSession, pipeline_ids: Sequence[str]) -> int:
+    async def mark_failed_bulk(
+            self,
+            session: AsyncSession,
+            pipeline_ids: Sequence[str]) -> int:
         ids = list(pipeline_ids)
         if not ids:
             return 0
@@ -87,4 +101,3 @@ class PipelinesRepo:
         )
         await session.commit()
         return len(ids)
-
