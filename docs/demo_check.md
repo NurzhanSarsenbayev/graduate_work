@@ -6,7 +6,9 @@
 ## 0) Старт и sanity-check
 
 ```bash
+make build
 make up
+make alembic-up
 make api-health
 ```
 

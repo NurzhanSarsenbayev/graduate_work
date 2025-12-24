@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.app.db import get_db_session
+from infra.db import get_db_session
 from src.app.services.pipelines import PipelinesService
 
 

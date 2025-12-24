@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
-from . import EtlPipeline
 from .base import Base
+if TYPE_CHECKING:
+    from src.app.models.etl_pipeline import EtlPipeline
+
 
 
 class EtlState(Base):

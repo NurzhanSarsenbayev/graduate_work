@@ -9,7 +9,7 @@ from sqlalchemy import text
 from src.runner.repos.pipelines import PipelinesRepo
 from src.runner.repos.runs import RunsRepo
 
-from src.app.db import async_session_factory
+from infra.db import async_session_factory, engine
 
 from src.runner.services.db_errors import is_db_disconnect
 from src.runner.orchestration.manager import PipelineManager
@@ -61,7 +61,6 @@ async def wait_for_db(
 
 
 async def main_loop(poll_interval: float = 5.0) -> NoReturn:
-    setup_logging()
     logger.info("ETL Runner starting up...")
 
     # --- startup ---
@@ -102,6 +101,14 @@ async def main_loop(poll_interval: float = 5.0) -> NoReturn:
                 logger.exception("Error during runner tick")
         await asyncio.sleep(poll_interval)
 
+async def main() -> None:
+    setup_logging()
+    try:
+        await main_loop()
+    finally:
+        # важно: гарантированно закрыть пул соединений
+        logger.info("Disposing DB engine...")
+        await engine.dispose()
 
 if __name__ == "__main__":
-    asyncio.run(main_loop())
+    asyncio.run(main())

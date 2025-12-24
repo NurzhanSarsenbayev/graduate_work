@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -14,8 +14,12 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from src.app.core.enums import PipelineStatus
-from . import EtlRun, EtlState, EtlPipelineTask
 from .base import Base
+if TYPE_CHECKING:
+    from src.app.models.etl_run import EtlRun
+    from src.app.models.etl_state import EtlState
+    from src.app.models.etl_pipeline_task import EtlPipelineTask
+
 
 
 class EtlPipeline(Base):

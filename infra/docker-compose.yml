@@ -12,34 +12,11 @@ services:
       - ./postgres/init:/docker-entrypoint-initdb.d
     networks:
       - etl_net
-
-  etl_api:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-    env_file:
-      - ../.env
-    depends_on:
-      - etl_db
-    ports:
-      - "8000:8000"
-    networks:
-      - etl_net
-
-  etl_runner:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-    env_file:
-      - ../.env
-    depends_on:
-      - etl_db
-      - elasticsearch
-    command: ["python", "-m", "src.runner.main"]
-    environment:
-      - ELASTICSEARCH_URL=http://elasticsearch:9200
-    networks:
-      - etl_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U etl_user -d etl_demo"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
@@ -52,10 +29,55 @@ services:
     volumes:
       - es_data:/usr/share/elasticsearch/data
     healthcheck:
-      test: [ "CMD-SHELL", "curl -s http://localhost:9200 >/dev/null || exit 1" ]
+      test: ["CMD-SHELL", "curl -s http://localhost:9200 >/dev/null || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 30
+    networks:
+      - etl_net
+
+  etl_migrations:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    env_file:
+      - ../.env
+    depends_on:
+      etl_db:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    networks:
+      - etl_net
+
+  etl_api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    env_file:
+      - ../.env
+    depends_on:
+      etl_migrations:
+        condition: service_completed_successfully
+    ports:
+      - "8100:8000"
+    networks:
+      - etl_net
+
+  etl_runner:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    env_file:
+      - ../.env
+    depends_on:
+      etl_migrations:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_healthy
+    command: ["python", "-m", "src.runner.main"]
+    environment:
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
     networks:
       - etl_net
 

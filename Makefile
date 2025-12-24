@@ -1,5 +1,5 @@
 COMPOSE = docker compose -f infra/docker-compose.yml
-API_URL = http://127.0.0.1:8000
+API_URL = http://127.0.0.1:8100
 PIPES   = $(API_URL)/api/v1/pipelines
 DB_CONT = infra-etl_db-1
 PSQL    = docker exec -i $(DB_CONT) psql -U etl_user -d etl_demo
@@ -72,13 +72,15 @@ ps:
 	$(COMPOSE) ps
 
 logs:
-	$(COMPOSE) logs -f etl_api etl_runner etl_db
+	$(COMPOSE) logs -f etl_api etl_runner etl_db etl_migrations
 
+alembic-up:
+	$(COMPOSE) run --rm etl_api alembic upgrade head
 # --------------------
 # API
 # --------------------
 api-health:
-	curl -s $(API_URL)/health || true
+	curl -s $(API_URL)/api/v1/health || true
 
 api-list:
 	curl -s $(PIPES)/ | $(JSON_FMT)
@@ -125,6 +127,7 @@ api-runs-delta2:
 api-runs:
 	@test -n "$(ID)" || (echo "Usage: make api-runs ID=<uuid>" && exit 1)
 	curl -s "$(PIPES)/$(ID)/runs?limit=50" | $(JSON_FMT)
+
 
 # --------------------
 # Create pipelines
