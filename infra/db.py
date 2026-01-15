@@ -11,7 +11,7 @@ from src.config import get_settings
 
 settings = get_settings()
 
-# Асинхронный движок SQLAlchemy
+# Async engine SQLAlchemy
 engine: AsyncEngine = create_async_engine(
     settings.database_url,
     echo=False,
@@ -20,7 +20,7 @@ engine: AsyncEngine = create_async_engine(
     pool_recycle=1800,
 )
 
-# Фабрика сессий
+# Session factory
 async_session_factory = async_sessionmaker(
     engine,
     expire_on_commit=False,
@@ -28,6 +28,6 @@ async_session_factory = async_sessionmaker(
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
-    """DI-зависимость для FastAPI: выдаёт AsyncSession."""
+    """DI-dependency for FastAPI: AsyncSession."""
     async with async_session_factory() as session:
         yield session

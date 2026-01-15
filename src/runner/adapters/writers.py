@@ -136,7 +136,7 @@ class ElasticsearchWriter:
         self._cfg = cfg
 
     def _index_from_target(self, target_table: str) -> str:
-        # target_table вида "es:film_dim"
+        # target_table like "es:film_dim"
         if not target_table.startswith(ES_TARGET_PREFIX):
             raise ValueError(
                 f"ES writer expects target_table starting "
@@ -149,11 +149,11 @@ class ElasticsearchWriter:
         return idx
 
     def _id_field_for_index(self, index: str) -> str:
-        # MVP: ключ документа — film_id
+        # MVP: document id field is film_id
         return "film_id"
 
     def _mappings_for_index(self, index: str) -> dict:
-        # MVP-мэппинги под демо
+        # MVP mappings for demo
         if index == "film_dim":
             return {
                 "mappings": {
@@ -177,7 +177,7 @@ class ElasticsearchWriter:
                 }
             }
 
-        # На всякий: динамика
+        # Fallback: dynamic mapping
         return {"mappings": {"dynamic": True}}
 
     async def _ensure_index(
@@ -224,8 +224,8 @@ class ElasticsearchWriter:
 
                 if id_field not in r:
                     raise ValueError(
-                        f"ES writer ожидает поле {id_field!r} "
-                        f"в строке. Row keys={list(r.keys())}"
+                         f"ES writer expects field {id_field!r} in row. "
+                         f"Row keys={list(r.keys())}"
                     )
 
                 _id = str(r[id_field])

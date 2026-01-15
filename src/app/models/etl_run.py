@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 class EtlRun(Base):
-    """История запусков (etl.etl_runs)."""
+    """Pipeline execution runs (etl.etl_runs)."""
 
     __tablename__ = "etl_runs"
     __table_args__ = (

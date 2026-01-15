@@ -27,7 +27,7 @@ SETTINGS = get_settings()
 
 
 def include_object(object_: Any, name: str, type_: str, reflected: bool, compare_to: Any) -> bool:
-    # Мигрируем только etl-схему: таблицы и всё что к ним относится
+
     if type_ == "table":
         schema = getattr(object_, "schema", None)
         return schema == "etl"

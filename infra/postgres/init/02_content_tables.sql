@@ -9,4 +9,4 @@ CREATE TABLE IF NOT EXISTS film_work (
     updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
 );
 
--- ОБЯЗАТЕЛЬНО потом добавим genre, person и связи
+-- TODO: add genre, person, etc

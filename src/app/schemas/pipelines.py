@@ -7,11 +7,11 @@ from pydantic import BaseModel, ConfigDict
 
 
 # ======================
-#   Базовые модели
+#   Base models
 # ======================
 
 class PipelineBase(BaseModel):
-    """Общие поля для создания/чтения пайплайна (без id и status)."""
+    """Common fields used for creating/reading a pipeline (without id and status)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -25,7 +25,7 @@ class PipelineBase(BaseModel):
 
 
 class PipelineCreate(PipelineBase):
-    """Модель для создания пайплайна."""
+    """Request model for creating a pipeline."""
 
     source_query: str
     python_module: str | None = None
@@ -36,7 +36,7 @@ class PipelineCreate(PipelineBase):
 
 
 class PipelineUpdate(BaseModel):
-    """Модель для частичного обновления пайплайна."""
+    """Request model for partial pipeline updates."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -57,11 +57,11 @@ class PipelineUpdate(BaseModel):
 
 
 # ======================
-#   Выходные модели
+#   Response models
 # ======================
 
 class PipelineOut(PipelineBase):
-    """Упрощённое представление пайплайна в ответе API."""
+    """Simplified pipeline representation returned by the API."""
 
     model_config = ConfigDict(from_attributes=True, extra="ignore")
 
@@ -76,7 +76,7 @@ class PipelineOut(PipelineBase):
 
 
 class PipelineRunOut(BaseModel):
-    """Модель для истории запусков пайплайна."""
+    """Model used for pipeline run history responses."""
 
     model_config = ConfigDict(from_attributes=True, extra="ignore")
 

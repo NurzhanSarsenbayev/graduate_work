@@ -14,7 +14,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # 1) schema + extension (для gen_random_uuid())
+    # 1) schema + extension (for gen_random_uuid())
     op.execute("CREATE SCHEMA IF NOT EXISTS etl;")
     op.execute('CREATE EXTENSION IF NOT EXISTS "pgcrypto";')
 
@@ -35,7 +35,7 @@ def upgrade() -> None:
         sa.Column("target_table", sa.Text(), nullable=False),
         sa.Column("mode", sa.Text(), nullable=False),
         sa.Column("incremental_key", sa.Text(), nullable=True),
-        sa.Column("incremental_id_key", sa.Text(), nullable=True),  # <-- сразу добавили
+        sa.Column("incremental_id_key", sa.Text(), nullable=True),
         sa.Column("batch_size", sa.Integer(), nullable=False, server_default=sa.text("1000")),
         sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("status", sa.Text(), nullable=False, server_default=sa.text("'IDLE'")),
@@ -109,7 +109,6 @@ def upgrade() -> None:
         ),
         sa.Column("started_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.Column("finished_at", sa.TIMESTAMP(timezone=True), nullable=True),
-        # Совет: лучше NOT NULL DEFAULT 0, чтобы repo/логика не ловили None
         sa.Column("rows_read", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("rows_written", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("status", sa.Text(), nullable=False, server_default=sa.text("'RUNNING'")),
@@ -127,16 +126,17 @@ def upgrade() -> None:
         postgresql_using="btree",
         postgresql_ops={"started_at": "DESC"},
     )
-    # ⚠️ Если выше строка с postgresql_ops упрётся — проще так:
-    # op.execute("CREATE INDEX IF NOT EXISTS ix_etl_runs_pipeline_id_started_at ON etl.etl_runs (pipeline_id, started_at DESC);")
+    # ⚠️ If the line above with postgresql_ops causes issues, use a raw SQL index instead:
+    # op.execute("CREATE INDEX IF NOT EXISTS ix_etl_runs_pipeline_id_started_at ON etl.etl_runs
+    # (pipeline_id, started_at DESC);")
 
 
 def downgrade() -> None:
-    # удаляем в обратном порядке зависимостей
+    # Drop in reverse dependency order
     op.drop_index("ix_etl_runs_pipeline_id_started_at", table_name="etl_runs", schema="etl")
     op.drop_table("etl_runs", schema="etl")
     op.drop_table("etl_state", schema="etl")
     op.drop_table("etl_pipeline_tasks", schema="etl")
     op.drop_table("etl_pipelines", schema="etl")
-    # schema и extension обычно не трогаем (чтобы не снести чужое), но если хочешь:
+    # Usually we don't drop schema/extension (to avoid deleting shared DB objects), but if you want:
     # op.execute("DROP SCHEMA IF EXISTS etl CASCADE;")

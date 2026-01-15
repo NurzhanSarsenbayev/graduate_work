@@ -25,9 +25,10 @@ def setup_logging() -> None:
 
 async def _check_db_connection() -> None:
     """
-    Быстрый ping БД.
-    Важно: создаём/закрываем сессию внутри,
-     чтобы не держать "битую".
+      Quick DB ping.
+
+      Important: we create/close the session inside this function
+      to avoid keeping a "broken" session around.
     """
     async with async_session_factory() as session:  # type: AsyncSession
         result = await session.execute(text("SELECT 1"))
@@ -40,7 +41,7 @@ async def wait_for_db(
     delays: tuple[float, ...] = (1, 2, 4, 8, 8, 8, 8, 8, 8, 8),
 ) -> None:
     """
-    Ждём пока БД поднимется. Если не поднялась за attempts — падаем.
+    Wait until the DB is up. If it is not ready after `attempts`, fail.
     """
     last_exc: Exception | None = None
 
@@ -106,7 +107,7 @@ async def main() -> None:
     try:
         await main_loop()
     finally:
-        # важно: гарантированно закрыть пул соединений
+        # important: always dispose the connection pool
         logger.info("Disposing DB engine...")
         await engine.dispose()
 

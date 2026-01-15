@@ -1,37 +1,36 @@
 
-````markdown
-# 📡 ETL API — контракт для сервиса управления пайплайнами
+# ETL API Reference
 
-Версия: **v1 (MVP)**  
-Назначение: описать фактическое поведение FastAPI-приложения на текущем этапе (неделя 2).
+This document describes the public REST API of the **Fault-Tolerant ETL Platform**.  
+The API acts as a **control-plane**: it manages pipeline configuration and lifecycle, but never executes pipelines directly.
 
 ---
 
-## 1. Общие принципы
+## Overview
 
-- Базовый URL: `/api/v1`
-- Формат данных: `application/json`
-- Идентификаторы пайплайнов и запусков — UUID (строка).
-- Все успешные ответы (кроме потенциальных `204 No Content`) возвращают JSON.
-- Базовый формат ошибок:
+- Base URL: `/api/v1`
+- Content type: `application/json`
+- Pipeline and run identifiers: UUID (string)
+- All successful responses return JSON (except `204 No Content`)
+- Error format:
 
 ```json
 {
-  "detail": "Человеко-понятное описание проблемы"
+  "detail": "Human-readable error description"
 }
 ````
 
-Примеры конкретных сообщений перечислены в разделе [Ошибки](#5-ошибки-и-коды-ответов).
+---
+
+## Data Models
+
+This section describes the **public API schemas** (Pydantic-based).
 
 ---
 
-## 2. Модели данных (API-уровень)
+### PipelineCreate
 
-Здесь описаны **Pydantic-схемы**, используемые в публичном API.
-
-### 2.1. `PipelineCreate` — создание пайплайна
-
-Тело запроса `POST /api/v1/pipelines/`:
+Request body for `POST /pipelines`.
 
 ```json
 {
@@ -42,38 +41,43 @@
   "enabled": true,
   "target_table": "analytics.film_dim",
   "batch_size": 100,
-  "source_query": "SELECT id as film_id, title, rating FROM content.film_work"
+  "source_query": "SELECT id AS film_id, title, rating FROM content.film_work"
 }
 ```
 
-Поля:
+#### Fields
 
-* `name` — уникальное имя пайплайна.
-* `description` — опциональное описание.
-* `type` — тип пайплайна, сейчас поддерживается только `"SQL"` (по умолчанию `"SQL"`).
-* `mode` — режим, сейчас используется `"full"` (по умолчанию `"full"`).
-* `enabled` — включён/выключен пайплайн (по умолчанию `true`).
-* `target_table` — целевая таблица в схеме `analytics.*`.
-  На текущем этапе допускаются значения из `ALLOWED_TARGET_TABLES`:
+* `name` — unique pipeline name
+* `description` — optional description
+* `type` — pipeline type (currently only `"SQL"` is supported)
+* `mode` — execution mode (`"full"` or `"incremental"`)
+* `enabled` — whether the pipeline is active
+* `target_table` — sink target
+* `batch_size` — batch size (default: `1000`)
+* `source_query` — SQL source query
 
-  * `analytics.film_dim`
-  * `analytics.film_rating_agg`
-* `batch_size` — размер батча (по умолчанию `1000`).
-* `source_query` — SQL-запрос-источник.
+#### Target Restrictions
 
-> На уровне API поля `incremental_key`, `created_at`, `updated_at` пока **не возвращаются**.
+Only whitelisted targets are allowed.
+
+PostgreSQL:
+
+* `analytics.film_dim`
+* `analytics.film_rating_agg`
+
+Elasticsearch targets use the `es:` prefix (e.g., `es:film_dim`).
 
 ---
 
-### 2.2. `PipelineOut` — представление пайплайна в ответах
+### PipelineOut
 
-Ответы большинства эндпоинтов `/pipelines` используют эту форму:
+Returned by most `/pipelines` endpoints.
 
 ```json
 {
   "id": "be239deb-055a-4c6f-9547-783e462041f8",
   "name": "film_dim_full",
-  "description": "Full load film_dim pipeline (disabled for now)",
+  "description": "Full load film_dim pipeline",
   "type": "SQL",
   "mode": "full",
   "enabled": false,
@@ -83,52 +87,42 @@
 }
 ```
 
-Поля:
+#### Fields
 
-* `id` — UUID пайплайна.
-* `name`, `description` — имя и описание.
-* `type` — `"SQL"` / `"PYTHON"` (сейчас фактически используется `"SQL"`).
-* `mode` — `"full"` / `"incremental"` (MVP: используется `"full"`).
-* `enabled` — флаг включения.
-* `status` — одно из:
-
-  * `IDLE`
-  * `RUNNING`
-  * `PAUSED`
-  * `FAILED`
-* `target_table` — целевая таблица (`analytics.film_dim`, `analytics.film_rating_agg` и т.п.).
-* `batch_size` — размер батча.
+* `id` — pipeline UUID
+* `name`, `description`
+* `type` — `"SQL"` / `"PYTHON"` (future)
+* `mode` — `"full"` / `"incremental"`
+* `enabled`
+* `status` — see [Pipeline States](#pipeline-states)
+* `target_table`
+* `batch_size`
 
 ---
 
-### 2.3. `PipelineUpdate` — частичное обновление
+### PipelineUpdate
 
-Тело запроса `PATCH /api/v1/pipelines/{pipeline_id}`:
+Request body for `PATCH /pipelines/{pipeline_id}`.
+
+All fields are optional.
 
 ```json
 {
-  "name": "film_dim_full_v2",
-  "description": "Updated description",
-  "type": "SQL",
-  "mode": "full",
-  "enabled": false,
-  "target_table": "analytics.film_dim",
   "batch_size": 500,
-  "source_query": "SELECT id as film_id, title, rating FROM content.film_work WHERE rating IS NOT NULL"
+  "enabled": false
 }
 ```
 
-Все поля **опциональны**. Отправляются только те, которые нужно поменять.
+#### Business Rules
 
-Ограничения бизнес-логики:
-
-* если пайплайн в статусе `RUNNING`, любые попытки обновить конфигурацию приводят к ошибке `409 Conflict` (см. [Ошибки](#5-ошибки-и-коды-ответов)).
+* Pipelines in `RUNNING` state **cannot be modified**
+* Violations result in `409 Conflict`
 
 ---
 
-### 2.4. `PipelineRunOut` — запуск пайплайна
+### PipelineRunOut
 
-Ответ `GET /api/v1/pipelines/{pipeline_id}/runs`:
+Returned by `/pipelines/{pipeline_id}/runs`.
 
 ```json
 {
@@ -142,88 +136,65 @@
 }
 ```
 
-Поля:
+#### Fields
 
-* `id` — UUID запуска.
-* `status` — `"RUNNING"`, `"SUCCESS"`, `"FAILED"`.
-* `started_at` — время старта (UTC).
-* `finished_at` — время завершения или `null`, если запуск ещё идёт.
-* `rows_read` — количество строк, прочитанных из источника.
-* `rows_written` — количество строк, записанных в целевую таблицу.
-* `error_message` — текст ошибки при `FAILED` (может быть `null`).
-
-> На текущем этапе `pipeline_id` внутрь `PipelineRunOut` не включён, так как всегда запрашивается история по конкретному пайплайну.
+* `id` — run UUID
+* `status` — `"RUNNING"`, `"SUCCESS"`, `"FAILED"`
+* `started_at` — UTC timestamp
+* `finished_at` — UTC timestamp or `null`
+* `rows_read`
+* `rows_written`
+* `error_message` — populated if `FAILED`
 
 ---
 
-## 3. Эндпоинты по пайплайнам
+## Pipelines Endpoints
 
-Все эндпоинты находятся под префиксом:
-`/api/v1/pipelines`
+All endpoints are prefixed with:
 
-### 3.1. `GET /api/v1/pipelines/` — список пайплайнов
+```
+/api/v1/pipelines
+```
 
-**Описание:**
-Вернуть список всех пайплайнов.
+---
 
-**Пример ответа:**
+### GET `/pipelines`
+
+Returns a list of all pipelines.
+
+#### Response
 
 ```json
 [
   {
     "id": "be239deb-055a-4c6f-9547-783e462041f8",
     "name": "film_dim_full",
-    "description": "Full load film_dim pipeline (disabled for now)",
+    "description": "Full load film_dim pipeline",
     "type": "SQL",
     "mode": "full",
     "enabled": false,
     "status": "PAUSED",
     "target_table": "analytics.film_dim",
     "batch_size": 500
-  },
-  {
-    "id": "2f36a4ab-d010-47f4-8cfb-91d89dbc78ed",
-    "name": "ratings_full",
-    "description": "Full rebuild of analytics.film_rating_agg from ugc.ratings",
-    "type": "SQL",
-    "mode": "full",
-    "enabled": true,
-    "status": "IDLE",
-    "target_table": "analytics.film_rating_agg",
-    "batch_size": 100
   }
 ]
 ```
 
-Коды ответов:
+#### Status Codes
 
-* `200 OK` — успешная выдача списка.
+* `200 OK`
 
 ---
 
-### 3.2. `POST /api/v1/pipelines/` — создать пайплайн
+### POST `/pipelines`
 
-**Описание:**
-Создаёт новый ETL-пайплайн.
+Creates a new pipeline.
 
-**Тело запроса:** `PipelineCreate`.
+#### Request Body
 
-**Пример успешного запроса:**
+`PipelineCreate`
 
-```json
-{
-  "name": "film_dim_full_v2",
-  "description": "Full reload of film_dim (v2)",
-  "type": "SQL",
-  "mode": "full",
-  "enabled": true,
-  "batch_size": 100,
-  "target_table": "analytics.film_dim",
-  "source_query": "SELECT id as film_id, title, rating FROM content.film_work"
-}
-```
-
-**Пример ответа (201):**
+#### Response (201)
 
 ```json
 {
@@ -239,209 +210,157 @@
 }
 ```
 
-Возможные ошибки:
-
-* `400 Bad Request`:
-
-  * `target_table 'analytics.some_unknown_table' is not allowed`
-  * `Pipeline with this name already exists`
-* `422 Unprocessable Entity` — ошибки валидации входных данных (Pydantic).
-
----
-
-### 3.3. `GET /api/v1/pipelines/{pipeline_id}` — получить пайплайн
-
-**Описание:**
-Вернуть информацию о конкретном пайплайне по `id`.
-
-**Пример ответа (200):**
-
-```json
-{
-  "id": "be239deb-055a-4c6f-9547-783e462041f8",
-  "name": "film_dim_full",
-  "description": "Full load film_dim pipeline (disabled for now)",
-  "type": "SQL",
-  "mode": "full",
-  "enabled": false,
-  "status": "PAUSED",
-  "target_table": "analytics.film_dim",
-  "batch_size": 500
-}
-```
-
-Ошибки:
-
-* `404 Not Found` — `{"detail": "Pipeline not found"}`
-
----
-
-### 3.4. `PATCH /api/v1/pipelines/{pipeline_id}` — частичное обновление
-
-**Описание:**
-Частично обновляет конфигурацию пайплайна.
-Если в теле запроса нет ни одного поля (пустой `{}`), API просто возвращает текущую версию.
-
-**Пример запроса:**
-
-```json
-{
-  "batch_size": 500,
-  "enabled": false
-}
-```
-
-**Пример ответа (200):**
-
-```json
-{
-  "id": "be239deb-055a-4c6f-9547-783e462041f8",
-  "name": "film_dim_full",
-  "description": "Full load film_dim pipeline (disabled for now)",
-  "type": "SQL",
-  "mode": "full",
-  "enabled": false,
-  "status": "PAUSED",
-  "target_table": "analytics.film_dim",
-  "batch_size": 500
-}
-```
-
-Ошибки:
-
-* `404 Not Found` — пайплайн не найден.
-* `409 Conflict` — `{"detail": "Cannot update pipeline while it is RUNNING"}`
-  (domенное правило: нельзя менять конфиг активного пайплайна).
-* `422 Unprocessable Entity` — некорректные типы/значения полей.
-
----
-
-## 4. Управление статусом пайплайна (run / pause)
-
-### 4.1. `POST /api/v1/pipelines/{pipeline_id}/run` — запуск
-
-**Описание:**
-Переводит пайплайн в статус `RUNNING`.
-Если он уже в `RUNNING`, просто возвращается текущий объект без ошибки.
-
-**Пример ответа (200):**
-
-```json
-{
-  "id": "be239deb-055a-4c6f-9547-783e462041f8",
-  "name": "film_dim_full",
-  "description": "Full load film_dim pipeline (disabled for now)",
-  "type": "SQL",
-  "mode": "full",
-  "enabled": false,
-  "status": "RUNNING",
-  "target_table": "analytics.film_dim",
-  "batch_size": 500
-}
-```
-
-Ошибки:
-
-* `404 Not Found` — `{"detail": "Pipeline not found"}`.
-
----
-
-### 4.2. `POST /api/v1/pipelines/{pipeline_id}/pause` — пауза
-
-**Описание:**
-Переводит пайплайн в статус `PAUSED`.
-Если он уже в `PAUSED`, возвращается объект как есть.
-
-**Пример ответа (200):**
-
-```json
-{
-  "id": "be239deb-055a-4c6f-9547-783e462041f8",
-  "name": "film_dim_full",
-  "description": "Full load film_dim pipeline (disabled for now)",
-  "type": "SQL",
-  "mode": "full",
-  "enabled": false,
-  "status": "PAUSED",
-  "target_table": "analytics.film_dim",
-  "batch_size": 500
-}
-```
-
-Ошибки:
-
-* `404 Not Found` — `{"detail": "Pipeline not found"}`.
-
----
-
-## 5. История запусков пайплайна
-
-### 5.1. `GET /api/v1/pipelines/{pipeline_id}/runs` — список запусков
-
-**Описание:**
-Возвращает историю запусков конкретного пайплайна.
-Поддерживает параметр `limit` (по умолчанию `50`, от `1` до `500`).
-
-**Пример запроса:**
-
-```http
-GET /api/v1/pipelines/be239deb-055a-4c6f-9547-783e462041f8/runs?limit=50
-```
-
-**Пример ответа (200):**
-
-```json
-[
-  {
-    "id": "8db9cb6a-7507-4b57-bda4-30e925605ffa",
-    "status": "SUCCESS",
-    "started_at": "2025-12-10T08:01:06.674452Z",
-    "finished_at": "2025-12-10T08:01:06.699992Z",
-    "rows_read": 10,
-    "rows_written": 10,
-    "error_message": null
-  }
-]
-```
-
-Ошибки:
-
-* `404 Not Found` — если пайплайн не существует (`{"detail": "Pipeline not found"}`).
-
----
-
-## 6. Ошибки и коды ответов
-
-Сводка основных ошибок для `/pipelines`:
+#### Errors
 
 * `400 Bad Request`
 
-  * `target_table '...' is not allowed`
-  * `Pipeline with this name already exists`
+  * target is not allowed
+  * pipeline name already exists
+* `422 Unprocessable Entity` — validation errors
+
+---
+
+### GET `/pipelines/{pipeline_id}`
+
+Returns a single pipeline.
+
+#### Errors
+
 * `404 Not Found`
 
-  * `Pipeline not found`
-* `409 Conflict`
+---
 
-  * `Cannot update pipeline while it is RUNNING`
+### PATCH `/pipelines/{pipeline_id}`
+
+Partially updates a pipeline configuration.
+
+#### Business Rules
+
+* Pipelines in `RUNNING` state cannot be updated
+
+#### Errors
+
+* `404 Not Found`
+* `409 Conflict` — cannot update a running pipeline
 * `422 Unprocessable Entity`
 
-  * Ошибки валидации входных данных (стандартный формат FastAPI/Pydantic).
+---
+
+## Pipeline Lifecycle
+
+### POST `/pipelines/{pipeline_id}/run`
+
+Requests pipeline execution.
+
+If the pipeline is already running, the current state is returned.
+
+#### Errors
+
+* `404 Not Found`
 
 ---
 
-## 7. Что появится позже (TBD)
+### POST `/pipelines/{pipeline_id}/pause`
 
-Это то, что заложено в архитектуру, но **пока не реализовано в API**:
+Requests pipeline pause.
 
-* Эндпоинты для:
+Pause is applied between batches.
 
-  * состояния пайплайна (`/state`, работа с `etl_state`);
-  * reconciliation / сверки source/target;
-  * расширенных фильтров и пагинации в `GET /pipelines`.
-* Отдельный эндпоинт `GET /api/v1/health` (healthcheck сервиса).
-* Поддержка Python-пайплайнов (`type = "PYTHON"`) и описания задач (`etl_pipeline_tasks`).
+#### Errors
 
-Факт наличия/отсутствия этих эндпоинтов нужно сверять по актуальному коду.
+* `404 Not Found`
 
 ---
+
+## Pipeline Runs
+
+### GET `/pipelines/{pipeline_id}/runs`
+
+Returns pipeline run history.
+
+#### Query Parameters
+
+* `limit` (default: 50, min: 1, max: 500)
+
+#### Errors
+
+* `404 Not Found`
+
+---
+
+## Pipeline States
+
+Pipelines are managed using an explicit state machine.
+
+Possible states:
+
+* `IDLE`
+* `RUN_REQUESTED`
+* `RUNNING`
+* `PAUSE_REQUESTED`
+* `PAUSED`
+* `FAILED`
+
+---
+
+## Error Handling
+
+Common error responses:
+
+### 400 Bad Request
+
+* Target is not allowed
+* Duplicate pipeline name
+
+### 404 Not Found
+
+* Pipeline not found
+
+### 409 Conflict
+
+* Cannot update a running pipeline
+
+### 422 Unprocessable Entity
+
+* Schema validation errors
+
+---
+
+## Execution Semantics
+
+The API does not execute pipelines.
+
+Instead, it:
+
+1. Persists configuration
+2. Requests state transitions
+3. Exposes pipeline status
+
+Execution is performed asynchronously by the **ETL Runner**.
+
+---
+
+## Future Extensions
+
+The following features are planned but not yet exposed:
+
+* Pipeline state introspection (`/state`)
+* Reconciliation endpoints
+* Pagination and filtering for `/pipelines`
+* Dedicated health endpoint (`/health`)
+* Python-based pipelines
+* Tasks-based pipeline definitions
+
+---
+
+## Summary
+
+This API is intentionally minimal.
+
+Its purpose is to:
+
+* Control pipeline lifecycle
+* Validate configuration
+* Expose execution state
+
+All execution logic is delegated to the data-plane.

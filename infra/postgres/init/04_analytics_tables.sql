@@ -1,16 +1,16 @@
 CREATE SCHEMA IF NOT EXISTS analytics;
 SET search_path TO analytics, public;
 
--- Денормализованная витрина по фильмам
+-- Denormalized film dimension table
 CREATE TABLE IF NOT EXISTS film_dim (
     film_id      UUID PRIMARY KEY,
     title        TEXT NOT NULL,
     rating       NUMERIC(3, 1),
-    -- в будущем можно добавить genres, persons и т.п.
+    -- Future extension: genres, persons, etc.
     updated_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Агрегаты рейтингов по фильмам
+-- Film rating aggregates
 CREATE TABLE IF NOT EXISTS film_rating_agg (
     film_id       UUID PRIMARY KEY,
     avg_rating    NUMERIC(3, 2),
@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS film_rating_agg (
     updated_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Опциональные индексы под аналитику
+-- Optional analytics indexes
 CREATE INDEX IF NOT EXISTS ix_film_dim_rating
     ON film_dim (rating);
 

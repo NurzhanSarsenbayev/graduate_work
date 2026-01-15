@@ -4,14 +4,14 @@ PIPES   = $(API_URL)/api/v1/pipelines
 DB_CONT = infra-etl_db-1
 PSQL    = docker exec -i $(DB_CONT) psql -U etl_user -d etl_demo
 BATCH ?= 100
-NAME  ?= film_dim_sql
+NAME  ?= film_dim
 MODE ?= full
 KEY  ?= updated_at
 INC_ID_KEY ?= film_id
-SLEEP ?= 0.2     # секунды pg_sleep на строку
-DELAY ?= 1       # задержка перед pause
-DT    ?= 0.2     # интервал опроса watch
-N     ?= 50      # число итераций watch
+SLEEP ?= 0.2     # seconds of pg_sleep per row
+DELAY ?= 1       # delay before sending pause request
+DT    ?= 0.2     # polling interval for watch
+N     ?= 50      # number of watch iterations
 
 JQ := $(shell command -v jq 2>/dev/null)
 
@@ -20,7 +20,7 @@ JSON_FMT = $(if $(JQ),jq .,cat)
 .PHONY: help up down down-v restart build ps logs \
         api-health api-list api-get api-run api-pause api-runs \
         api-create-sql-film-dim api-create-python-film-dim \
-        db-counts db-reset-demo
+        db-counts db-reset-demo es-demo
 
 help:
 	@echo ""
@@ -220,7 +220,7 @@ api-create-sql-film-rating-agg-slow:
 api-create-es-film-dim:
 	curl -s -X POST $(PIPES)/ \
 	  -H "Content-Type: application/json" \
-	  -d "{\"name\":\"film_dim_es\",\
+	  -d "{\"name\":\"$(NAME)\",\
 \"description\":\"Demo ES sink\",\
 \"type\":\"ES\",\
 \"mode\":\"full\",\
@@ -259,7 +259,7 @@ api-create-es-film-rating-agg-slow:
 api-create-tasks-film-dim-full:
 	@curl -s -X POST $(PIPES)/ \
 	  -H "Content-Type: application/json" \
-	  -d "{\"name\":\"film_dim_tasks_full\",\
+	  -d "{\"name\":\"$(NAME)\",\
 \"description\":\"film_dim tasks full\",\
 \"type\":\"SQL\",\
 \"mode\":\"full\",\
@@ -271,7 +271,7 @@ api-create-tasks-film-dim-full:
 api-create-tasks-film-dim-inc:
 	@curl -s -X POST $(PIPES)/ \
 	  -H "Content-Type: application/json" \
-	  -d "{\"name\":\"film_dim_tasks_inc\",\
+	  -d "{\"name\":\"$(NAME)_inc\",\
 \"description\":\"film_dim tasks incremental\",\
 \"type\":\"SQL\",\
 \"mode\":\"incremental\",\
@@ -354,3 +354,8 @@ db-tasks-film-dim-inc:
 	@$(PSQL) -c "INSERT INTO etl.etl_pipeline_tasks (pipeline_id, order_index, task_type, body, target_table) VALUES ('$(ID)', 1, 'SQL', 'SELECT id AS film_id, title, rating, updated_at FROM content.film_work', NULL);"
 	@$(PSQL) -c "INSERT INTO etl.etl_pipeline_tasks (pipeline_id, order_index, task_type, body, target_table) VALUES ('$(ID)', 2, 'PYTHON', 'src.pipelines.python_tasks.normalize_title', NULL);"
 
+es-demo:
+	@curl -s "http://127.0.0.1:9200/film_dim/_search?size=3" | jq
+
+pg-demo:
+	@$(PSQL) -c "SELECT film_id,title FROM analytics.film_dim;"

@@ -7,7 +7,7 @@ ALLOWED_TARGET_TABLES: set[str] = {
 
 ES_TARGET_PREFIX = "es:"
 
-# MVP: разрешаем только эти индексы (чтобы не дать писать куда угодно)
+# MVP: only allowing these indexes - for security
 ALLOWED_ES_INDEXES: set[str] = {
     "film_dim",
     "film_rating_agg",

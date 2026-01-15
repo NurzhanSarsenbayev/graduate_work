@@ -7,7 +7,7 @@ Row = Mapping[str, Any]
 
 
 class Writer(Protocol):
-    """Writer пишет батч в sink и возвращает число записанных строк."""
+    """Writes a batch to the sink and returns the number of written rows."""
 
     async def write(self, rows: Sequence[Row]) -> int:
         ...

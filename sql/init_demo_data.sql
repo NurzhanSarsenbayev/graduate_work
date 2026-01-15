@@ -1,4 +1,4 @@
--- Заполняем витрину analytics.film_dim из content.film_work
+-- Populate analytics.film_dim from content.film_work
 INSERT INTO analytics.film_dim (film_id, title, rating, updated_at)
 SELECT
     fw.id        AS film_id,
@@ -13,7 +13,7 @@ SET
     updated_at = NOW();
 
 
--- Заполняем витрину analytics.film_rating_agg из ugc.ratings
+-- Populate analytics.film_rating_agg from ugc.ratings
 INSERT INTO analytics.film_rating_agg (film_id, avg_rating, votes_count, updated_at)
 SELECT
     r.film_id,
@@ -31,7 +31,7 @@ SET
 ALTER TABLE etl.etl_pipelines
 ADD COLUMN IF NOT EXISTS python_module text NULL;
 
--- Добавляем два пайплайна в etl.etl_pipelines
+-- Add two pipelines into etl.etl_pipelines
 INSERT INTO etl.etl_pipelines (
     id,
     name,

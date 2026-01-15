@@ -4,7 +4,7 @@ from typing import Any
 
 
 def transform(rows: list[dict], pipeline: Any = None) -> list[dict]:
-    # пример: нормализуем rating -> float|None, title -> str
+    # example: normalize rating -> float|None, title -> str
     out: list[dict] = []
     for r in rows:
         rating = r.get("rating")

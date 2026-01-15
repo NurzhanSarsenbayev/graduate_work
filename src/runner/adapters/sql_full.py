@@ -28,7 +28,7 @@ async def _pause_if_requested(
     status = await ctx.pipelines.get_status(ctx.session, pipeline_id)
     if status == PipelineStatus.PAUSE_REQUESTED.value:
         await ctx.pipelines.apply_pause_requested(
-            ctx.session, pipeline_id)  # commit внутри
+            ctx.session, pipeline_id)  # commit inside
         logger.info("Pause requested:"
                     " pipeline id=%s -> PAUSED (after batch)", pipeline_id)
         return True

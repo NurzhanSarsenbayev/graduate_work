@@ -10,8 +10,10 @@ from src.app.services.pipelines import PipelinesService
 def get_pipelines_service(
     session: AsyncSession = Depends(get_db_session),
 ) -> PipelinesService:
-    """Фабрика PipelinesService для DI.
+    """Factory for creating PipelinesService instances
+     for dependency injection.
 
-    Вынесена в отдельный модуль, чтобы в роутере не держать DI-логику.
+    This is extracted into a separate module to keep routers
+    free of DI-related logic.
     """
     return PipelinesService(session=session)

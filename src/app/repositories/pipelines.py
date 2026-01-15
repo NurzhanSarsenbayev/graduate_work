@@ -12,12 +12,12 @@ from src.app.core.enums import PipelineStatus
 
 
 class SQLPipelinesRepository:
-    """Репозиторий для работы с пайплайнами и запусками.
+    """Repository for working with pipelines and runs.
 
-    Обеспечивает:
-    - отсутствие бизнес-логики;
-    - совместимость с сервисным слоем через доменные исключения;
-    - единообразный контракт (всегда возвращает объект или кидает ошибку).
+    Responsibilities:
+    - no business logic (storage access only);
+    - compatibility with the service layer via domain exceptions;
+    - consistent contract (returns an object or raises an error).
     """
 
     async def list_pipelines(
@@ -44,8 +44,11 @@ class SQLPipelinesRepository:
             self,
             session: AsyncSession,
             payload) -> EtlPipeline:
-        """Создать новый ETL пайплайн
-         — без бизнес-валидации (валидация должна быть в сервисе)."""
+        """Create a new ETL pipeline.
+
+        This method does not perform business validation
+        (validation must happen in the service layer).
+        """
 
         pipeline = EtlPipeline(
             id=str(uuid4()),
@@ -101,8 +104,8 @@ class SQLPipelinesRepository:
         limit: int = 50,
     ) -> Sequence[EtlRun]:
 
-        # Мы не валидируем существование pipeline здесь —
-        # пусть это решает сервисный слой (по SOLID)
+        # We intentionally do not validate pipeline existence here —
+        # the service layer owns that decision (separation of concerns).
 
         stmt = (
             select(EtlRun)
@@ -117,9 +120,9 @@ class SQLPipelinesRepository:
             self,
             session: AsyncSession,
             pipeline_id: str) -> EtlPipeline | None:
-        """Атомарно перевести пайплайн в RUN_REQUESTED,
-         если он в разрешённом статусе.
-        Возвращает обновлённый объект или None, если переход не выполнен.
+        """Atomically move a pipeline to RUN_REQUESTED if allowed.
+
+        Returns the updated pipeline, or None if the transition was not applied.
         """
         allowed_from = (
             PipelineStatus.IDLE.value,
@@ -143,7 +146,8 @@ class SQLPipelinesRepository:
         if updated is None:
             return None
 
-        # returning(...) обычно уже даёт объект, но refresh не повредит
+        # returning(...) usually provides an ORM object already,
+        # but refresh() is a safe extra step.
         await session.refresh(updated)
         return updated
 
@@ -151,9 +155,9 @@ class SQLPipelinesRepository:
             self,
             session: AsyncSession,
             pipeline_id: str) -> EtlPipeline | None:
-        """Атомарно перевести пайплайн в PAUSE_REQUESTED,
-         если он в разрешённом статусе.
-        Возвращает обновлённый объект или None.
+        """Atomically move a pipeline to PAUSE_REQUESTED if allowed.
+
+        Returns the updated pipeline, or None if the transition was not applied.
         """
         allowed_from = (
             PipelineStatus.RUNNING.value,
@@ -184,9 +188,10 @@ class SQLPipelinesRepository:
             self,
             session: AsyncSession,
             pipeline_id: str) -> bool:
-        """Claim step для runner: RUN_REQUESTED -> RUNNING.
-        True если мы захватили пайплайн,
-        False если уже захвачен/не в том статусе.
+        """Runner claim step: RUN_REQUESTED -> RUNNING.
+
+        Returns True if we claimed the pipeline.
+        Returns False if it was already claimed or not in the expected state.
         """
         stmt = (
             update(EtlPipeline)

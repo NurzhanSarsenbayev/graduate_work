@@ -22,13 +22,15 @@ class TickResult:
 
 
 class PipelineManager:
-    """Оркестратор одного 'тика' раннера:
-     найти кандидатов и обработать каждый в fresh-сессии."""
+    """Orchestrates a single runner "tick".
+
+    - Fetch candidate pipelines.
+    - Process each pipeline in its own fresh DB session."""
 
     def __init__(self, session_factory) -> None:
         self._session_factory = session_factory
 
-        # repos (одни и те же инстансы на весь процесс)
+        # repos (same instances for the entire process)
         self._pipelines = PipelinesRepo()
         self._runs = RunsRepo()
         self._state = StateRepo()
@@ -43,7 +45,7 @@ class PipelineManager:
         )
 
     async def tick(self) -> TickResult:
-        # 1) одной сессией получаем пайплайны-кандидаты
+        # 1) Fetch candidate pipelines using a single session
         async with self._session_factory() as session:  # type: AsyncSession
             pipelines = await self._pipelines.get_active(session)
 
@@ -56,7 +58,7 @@ class PipelineManager:
 
         processed = 0
 
-        # 2) каждый pipeline — в своей fresh-сессии
+        # 2) Process each pipeline in its own fresh session
         for pipeline in pipelines:
             async with self._session_factory() as session:
                 try:

@@ -7,8 +7,8 @@ Row = Mapping[str, Any]
 
 
 class BatchReader(Protocol):
-    """Reader возвращает "сырьевые" строки из источника батчами."""
+    """A reader that returns raw source rows in batches."""
 
     async def fetch_batch(self, *, limit: int) -> Sequence[Row]:
-        """Вернуть батч строк (может быть пустым, если данных больше нет)."""
+        """Fetch a batch of rows. Empty means EOF."""
         ...

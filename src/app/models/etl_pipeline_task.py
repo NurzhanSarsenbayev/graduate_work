@@ -21,11 +21,11 @@ if TYPE_CHECKING:
 
 
 class EtlPipelineTask(Base):
-    """Шаг пайплайна (etl.etl_pipeline_tasks)."""
+    """Pipeline task step (etl.etl_pipeline_tasks)."""
 
     __tablename__ = "etl_pipeline_tasks"
     __table_args__ = (
-        # порядок шагов уникален в рамках одного пайплайна
+        # task order must be unique within a pipeline
         UniqueConstraint(
             "pipeline_id",
             "order_index",
@@ -55,7 +55,7 @@ class EtlPipelineTask(Base):
     # "SQL" / "PYTHON"
     task_type: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # Для SQL: текст SQL; для PYTHON: имя зарегистрированной задачи
+    # For SQL: raw SQL text; for PYTHON: dotted path / registered task name
     body: Mapped[str] = mapped_column(Text, nullable=False)
 
     source_table: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

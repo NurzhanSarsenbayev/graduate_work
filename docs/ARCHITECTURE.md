@@ -1,679 +1,354 @@
 
----
+# Architecture
 
-# 📄 ARCHITECTURE.md
-
-*ETL-платформа для построения аналитических витрин онлайн-кинотеатра (Postgres → Postgres / Elasticsearch)*
+This document describes the architecture of the **Fault-Tolerant ETL Platform** — a platform prototype designed for building reliable, resumable, and idempotent data pipelines with explicit separation between control-plane and data-plane.
 
 ---
 
-# 1. Контекст и цель проекта
+## Overview
 
-Онлайн-кинотеатр хранит данные в PostgreSQL (несколько схем):
+The platform is designed to build analytical data marts and search indexes from operational data sources.
 
-- `content` — фильмы и контентные сущности
-- `ugc` — оценки/лайки/прочее поведение
-- `etl` — метаданные ETL (пайплайны, запуски, state)
-- `analytics` — аналитические витрины (Postgres sink)
+Primary sinks:
+- PostgreSQL (`analytics.*`)
+- Elasticsearch (`es:<index>`)
 
-Дополнительно платформа поддерживает sink в **Elasticsearch** для витрин/поисковых индексов (ES sink).
-
-Цель проекта — универсальная ETL-платформа, которая:
-
-- управляется конфигурацией пайплайнов в БД (а не хардкодом)
-- запускается/ставится на паузу через REST API
-- исполняется отдельным Runner-процессом (polling + state machine)
-- выполняет **batched** обработку данных
-- поддерживает **full** и **incremental** режимы
-- пишет результат в:
-  - Postgres (`analytics.*`)
-  - Elasticsearch (`es:<index>`)
-- умеет восстанавливаться после сбоев (recovery + идемпотентность)
+Key design principles:
+- Explicit state machine
+- Failure recovery by default
+- Batch-based execution
+- Idempotent writes
+- Clear separation of responsibilities
 
 ---
 
-# 2. Общая архитектура
+## Design Goals
 
-## 2.1. Компоненты
+The system is designed to solve common reliability problems in real-world ETL systems:
 
-- **ETL API (FastAPI)**  
-  Control-plane: CRUD пайплайнов и управление статусами (RUN/PAUSE), история запусков.
-  ETL API **не исполняет** пайплайны.
+1. **Resumability**  
+   Pipelines must be able to resume from the last consistent checkpoint.
 
-- **ETL Runner (Python worker)**  
-  Data-plane: периодически опрашивает БД, “забирает” пайплайны в работу, выполняет чтение/трансформацию/запись, обновляет state и runs.
+2. **Idempotency**  
+   Re-running a pipeline should not corrupt or duplicate data.
 
-- **Postgres**  
-  Хранит:
-  - source данные (`content`, `ugc`)
-  - метаданные и состояние (`etl`)
-  - Postgres-витрины (`analytics`)
+3. **Operational Safety**  
+   Partial writes, inconsistent state, and undefined transitions are not allowed.
 
-- **Elasticsearch**  
-  Sink для витрин в виде индексов (например `film_dim`, `film_rating_agg`).
+4. **Observability & Control**  
+   Pipelines must be externally controllable (run / pause / resume).
 
-## 2.2. Диаграмма взаимодействий
+5. **Extensibility**  
+   New sinks, execution modes, and orchestration strategies should be pluggable.
+
+---
+
+## System Components
 
 ```
 
 Client
 |
 v
-+------------------+         +-------------------------+
-|    ETL API        | <-----> | Postgres                |
-|  (FastAPI)        |         | - content, ugc (source) |
-| - CRUD pipelines  |         | - etl (meta/state)      |
-| - run/pause       |         | - analytics (target)    |
-+------------------+         +-------------------------+
-^
-|  polling (tick)
+ETL API (FastAPI) ──► Postgres (etl schema)
+▲
 |
-+------------------+
-|   ETL Runner      | -----> Elasticsearch (sink)
-| (Python worker)   |        - indexes: film_dim, ...
-| - state machine   |
-| - batch ETL        |
-+------------------+
+ETL Runner (worker)
+|
++------+------------------+
+|                         |
+Postgres (analytics)   Elasticsearch
 
 ```
 
----
+### Components
 
-# 3. Docker Compose
+#### ETL API (Control-plane)
+- Manages pipeline configuration
+- Validates user input
+- Controls lifecycle transitions (run, pause)
+- Does not execute pipelines
 
-В compose поднимаются:
+#### ETL Runner (Data-plane)
+- Executes pipelines
+- Applies retry and backoff policies
+- Maintains execution state
+- Implements recovery logic
 
-- `etl_db` (Postgres)
-- `etl_api` (FastAPI)
-- `etl_runner` (worker)
-- `elasticsearch` (ES sink)
+#### PostgreSQL
+Used as:
+- Source storage
+- Analytics storage
+- Metadata and state storage
 
-Runner получает ES URL через env:
-- `ELASTICSEARCH_URL=http://elasticsearch:9200`
-
----
-
-# 4. Модель пайплайна и правила конфигурации
-
-## 4.1. Пайплайн (EtlPipeline)
-
-Ключевые поля:
-
-- `type`: `"SQL"` / `"PYTHON"` (MVP: SQL, Python — расширяемость)
-- `mode`: `"full"` / `"incremental"`
-- `source_query`: SQL-источник (для SQL режима)
-- `target_table`:
-  - `"analytics.<table>"` для Postgres sink
-  - `"es:<index>"` для Elasticsearch sink
-- `batch_size`
-- `enabled`
-- `status` (см. state machine)
-
-Примечание:
-
-Пайплайн может быть исполнен в двух режимах конфигурации:
-
-- **Legacy mode** — используется `source_query` пайплайна
-- **Tasks mode** — используется связанный task plan (`etl_pipeline_tasks`)
-
-Если task plan присутствует, он имеет приоритет над `source_query`.
-
-## 4.2. Разрешённые sink-цели
-
-Платформа намеренно ограничивает “куда можно писать”, чтобы не дать пайплайном случайно писать в любую таблицу/индекс.
-
-В `src/app/core/constants.py`:
-
-- `ALLOWED_TARGET_TABLES` — допустимые Postgres-таблицы (например `analytics.film_dim`, `analytics.film_rating_agg`)
-- `ES_TARGET_PREFIX = "es:"`
-- `ALLOWED_ES_INDEXES` — допустимые индексы ES (например `film_dim`, `film_rating_agg`)
-- `is_allowed_target(target: str) -> bool` — единая проверка (используется API и writer-логикой)
-
-## 4.3. Pipeline Tasks (v1)
-
-Начиная с версии v1, пайплайн может быть описан **не только одним `source_query`**,  
-но и **планом выполнения (task plan)** — линейной последовательностью шагов.
-
-Если у пайплайна определены связанные tasks (`etl.etl_pipeline_tasks`), то:
-- `source_query` используется **только как legacy fallback**
-- фактическое исполнение определяется **task plan’ом**
-- Runner игнорирует `source_query` и исполняет pipeline через tasks
-
-### Task plan (v1)
-
-Task plan — это **упорядоченный список шагов**, связанных с пайплайном.
-
-Ограничения v1 (осознанный MVP):
-
-- шаги выполняются **строго последовательно**
-- **первый шаг — SQL reader**
-- остальные шаги — **Python transforms**
-- DAG, branching и fan-out **не поддерживаются**
-- pipeline остаётся **одним execution unit**
-
-Таким образом, tasks v1 — это не workflow-оркестратор,  
-а **расширяемый execution-план внутри одного пайплайна**.
-
-### Пример (conceptual)
-
-[ SQL reader ] → [ Python transform ] → [ Python transform ] → sink
-
-Sink определяется:
-- либо `pipeline.target_table`
-- либо `task.target_table` **только у последнего шага**
-
-### Валидация task plan
-
-Перед выполнением pipeline с tasks Runner выполняет строгую валидацию:
-
-- порядок шагов (`order_index`)
-- уникальность шагов
-- непустые `task_type` и `body`
-- первый шаг — SQL
-- последующие шаги — только PYTHON
-- `target_table` может быть переопределён **только последним шагом**
-- итоговый target проходит проверку через `is_allowed_target`
-
-Если контракт нарушен, execution **не начинается**.
+#### Elasticsearch
+Used as:
+- Search/index sink
+- Feature store for downstream services
 
 ---
 
-# 5. State machine пайплайна
+## Control-plane vs Data-plane
 
-Пайплайн управляется статусами. API выставляет “запрос” на действие, Runner его обрабатывает.
+### Control-plane
 
-Статусы:
+Responsibilities:
+- Pipeline CRUD
+- State transition requests
+- Validation
+- Security constraints
+- Configuration persistence
 
-- `IDLE` — готов, ничего не делает
-- `RUN_REQUESTED` — API запросил запуск
-- `RUNNING` — Runner забрал в работу (claim)
-- `PAUSE_REQUESTED` — API запросил паузу
-- `PAUSED` — Runner остановил после batch и зафиксировал state
-- `FAILED` — ошибка выполнения
+The control-plane never touches data.
 
-Схема переходов (упрощённо):
+---
+
+### Data-plane
+
+Responsibilities:
+- Data extraction
+- Transformation
+- Batch execution
+- Sink writes
+- Recovery and retry logic
+
+The data-plane does not expose HTTP and does not accept user input directly.
+
+---
+
+## Pipeline Execution Model
+
+Pipelines can be defined in two ways:
+
+1. **Legacy mode** — single SQL source query
+2. **Tasks mode (v1)** — linear execution plan
+
+If tasks are defined, they override the legacy mode.
+
+---
+
+## Tasks Model (v1)
+
+Tasks define a **linear execution plan** inside a pipeline.
+
+Example:
+
+```
+
+[ SQL Reader ] → [ Python Transform ] → [ Python Transform ] → Sink
+
+```
+
+### v1 Constraints (Intentional MVP Scope)
+
+- Tasks are strictly sequential
+- First step must be an SQL reader
+- All subsequent steps are Python transforms
+- No DAGs, no branching, no parallelism
+- Each pipeline is a single execution unit
+
+This is not a workflow engine.  
+It is a controlled, extensible execution plan.
+
+---
+
+## Incremental vs Full Execution
+
+### Full Pipelines
+- Process the entire dataset
+- Used for backfills and recomputation
+
+### Incremental Pipelines
+- Resume from the last processed checkpoint
+- Use explicit cursor-based pagination
+- Persist progress in `etl_state`
+- Commit state after every batch
+
+Checkpointing is based on the **SQL reader output**, not on post-transform data.  
+This guarantees deterministic replays.
+
+---
+
+## Failure Handling & Recovery
+
+The system is designed to be safe by default.
+
+### Guarantees
+
+- No partial writes
+- No duplicate records
+- Safe retries
+- Resume after crash
+
+### Mechanisms
+
+- Explicit state machine
+- Batch-level checkpointing
+- Automatic retries (3 attempts)
+- Exponential backoff: 1s → 2s → 4s
+- Idempotent write semantics
+
+---
+
+## Pause / Resume Semantics
+
+Pause requests are applied **between batches**.
+
+A running batch is always completed safely before pausing.
+
+This guarantees:
+- No partial batches
+- No inconsistent checkpoints
+
+---
+
+## Idempotency Model
+
+### PostgreSQL Sink
+- Implemented via UPSERT semantics
+
+### Elasticsearch Sink
+- Implemented via bulk `update` + `doc_as_upsert=true`
+
+This allows safe replays and retries.
+
+---
+
+## State Machine
+
+Pipelines are managed using an explicit state machine.
+
+States:
+
+- `IDLE`
+- `RUN_REQUESTED`
+- `RUNNING`
+- `PAUSE_REQUESTED`
+- `PAUSED`
+- `FAILED`
+
+Transitions:
 
 ```
 
 IDLE -> RUN_REQUESTED -> RUNNING -> IDLE
 RUNNING -> PAUSE_REQUESTED -> PAUSED
 PAUSED -> RUN_REQUESTED -> RUNNING
-RUNNING -> FAILED (если ошибка)
+RUNNING -> FAILED
 
 ```
 
-Важно:
-- Runner делает **claim** `RUN_REQUESTED -> RUNNING` атомарно (чтобы два раннера не выполнили один пайплайн).
-- Пауза применяется **между батчами**: Runner завершает текущий батч, коммитит state, ставит `PAUSED`.
+Runner performs atomic claim:
+`RUN_REQUESTED -> RUNNING`
+
+This prevents concurrent execution by multiple workers.
 
 ---
 
-# 6. Архитектура ETL Runner
+## Execution Orchestration
 
-Runner организован как OOP-оркестрация:
-
-## 6.1. PipelineManager
-
-Отвечает за один “тик”:
-- получить список активных пайплайнов-кандидатов (enabled + RUN_REQUESTED/PAUSE_REQUESTED)
-- обработать каждый пайплайн в **fresh DB session** (изоляция ошибок/транзакций)
-- пробросить наружу только DB-disconnect (чтобы main_loop мог отработать корректно)
-
-## 6.2. PipelineDispatcher
-
-Роутинг статусов:
-- `PAUSE_REQUESTED` → применить pause и выйти
-- `RUN_REQUESTED` → claim и выполнить через Executor
-- `RUNNING` → пропустить (другой раннер/состояние)
-
-Также Dispatcher отвечает за retry/backoff на “обычных” ошибках:
-- `MAX_ATTEMPTS = 3`
-- `BACKOFF_SECONDS = (1, 2, 4)`
-
-Ошибки disconnect (DB down/DNS/connection closed) не ретраятся “внутри исполнения” — Runner выходит из тика, а recovery забирает “залипшие RUNNING”.
-
-## 6.3. PipelineExecutor
-
-Исполняет “ETL-кухню” в зависимости от `mode` и `type`:
-
-- full:
-  - read batch из `source_query`
-  - transform
-  - write sink
-- incremental:
-  - читает `etl_state` (checkpoint)
-  - выбирает следующий batch по `(incremental_key, incremental_id_key)`
-  - после batch обновляет state и делает commit
-  - 
-Особенность incremental execution с tasks:
-
-Checkpoint (`etl_state`) вычисляется **по результату SQL reader**,
-а не по данным после Python transforms.
-
-Это гарантирует:
-- корректный курсор инкремента
-- воспроизводимость выполнения
-- независимость state от бизнес-логики трансформаций
-
-PipelineExecutor также отвечает за выбор стратегии исполнения
-в зависимости от конфигурации пайплайна:
-
-- если у пайплайна **нет tasks**:
-  - используется legacy execution
-  - `sql_full` или `sql_incremental`
-
-- если у пайплайна **есть tasks**:
-  - выполняется валидация task plan (v1 contract)
-  - используется `tasks_full` или `tasks_incremental`
-
-Таким образом, Executor является **единственной точкой**, где
-сходятся все варианты исполнения ETL.
-
-Executor также отвечает за корректное завершение `etl_runs` (успех/ошибка) и приводит pipeline status к финальному состоянию (IDLE/FAILED/PAUSED) согласно правилам.
-
----
-
-# 7. Adapters / Ports
-
-Runner использует адаптеры (MVP):
-
-- `adapters/sql_full.py` — full-прогон
-- `adapters/sql_incremental.py` — incremental-прогон (checkpoint)
-- `adapters/transformers.py` — resolve_transformer(...)
-- `adapters/writers.py` — resolve_writer(...)
-
-## 7.1. Transformers
-
-Transformer получает rows из SQLAlchemy (`mappings()`), нормализует и подготавливает данные под writer.
-(В MVP чаще всего pass-through + лёгкая нормализация).
-
-## 7.2. Writers
-
-Выбор writer зависит от `target_table`:
-
-- `analytics.*` → `PostgresWriter` (UPSERT)
-- `es:<index>` → `ElasticsearchWriter` (bulk upsert)
-
-### PostgresWriter
-- выполняет UPSERT (идемпотентность)
-- пишет в ограниченный набор витрин (`ALLOWED_TARGET_TABLES`)
-
-### ElasticsearchWriter
-- определяет индекс из `target_table` (prefix `es:`)
-- проверяет `ALLOWED_ES_INDEXES`
-- обеспечивает индекс (create если не существует) с MVP mappings
-- пишет bulk `update` + `doc_as_upsert=true`
-- нормализует типы (UUID/Decimal/datetime → JSON-friendly)
-
----
-
-# 8. Recovery и устойчивость
-
-## 8.1. Recovery “залипших RUNNING”
-
-На старте Runner выполняет recovery:
-- ищет пайплайны со статусом `RUNNING` (после краша/kill)
-- переводит их в корректный статус (например `IDLE` или `FAILED` — зависит от принятого правила)
-- логирует количество восстановленных
-
-## 8.2. Идемпотентность
-
-- Postgres sink: UPSERT по ключу (например `film_id`)
-- ES sink: upsert через bulk update (`doc_as_upsert`)
-
-Это позволяет безопасно повторять запуск.
-
----
-
-# 9. MVP витрины
-
-## 9.1. film_dim
-- Postgres: `analytics.film_dim`
-- ES: `es:film_dim` → индекс `film_dim`
-
-Пример: `film_id`, `title`, `rating`
-
-## 9.2. film_rating_agg
-- Postgres: `analytics.film_rating_agg`
-- ES: `es:film_rating_agg` → индекс `film_rating_agg`
-
-Пример: `film_id`, `avg_rating`, `rating_count`
-
----
-
-# 10. ETL API (контроль)
-
-API даёт:
-- CRUD пайплайнов
-- запуск/пауза
-- история запусков (runs)
-
-Runner читает только БД (polling), без прямой связи API → Runner.
-
----
-
-# 11. Расширяемость (что дальше)
-
-Платформа спроектирована так, чтобы добавить:
-
-- новые sink’и (ClickHouse, S3, etc.) через Writer
-- python-пайплайны (`type=PYTHON`) через transformer/adapter
-- внешнюю оркестрацию (Airflow) — API остаётся control-plane, runner исполняет
-
----
-
-Отлично. Тогда делаем **вторую итерацию ARCHITECTURE.md** — добавляем раздел, который обычно **очень любят ревьюеры** и который реально помогает тебе самому:
-👉 **структура репозитория + ответственность слоёв**.
-
-Ниже — **готовый блок для копипаста**, его можно просто **добавить в конец** текущего `ARCHITECTURE.md` (или сразу после раздела про Runner).
-
----
-
----
-
-# 12. Структура репозитория и ответственность слоёв
-
-Проект разделён на **control-plane (API)** и **data-plane (Runner)**.  
-Каждый слой имеет чёткую зону ответственности и не “лезет” в чужие.
-
-## 12.1. Общая структура
+Execution is structured as a layered orchestration:
 
 ```
 
-│   .env.sample
-│   .gitignore
-│   Dockerfile
-│   Makefile
-│   README.md
-│   requirements.txt
-│   
-├───docs
-│       API.md
-│       ARCHITECTURE.md
-│       demo_script.md
-│       demo_short.md
-│       demo_short_script_v2.md
-│       demo_smoke_tests_v2.md
-│       PLAN.md
-│       Technical_Requirements.md
-│
-├───infra
-│   │   docker-compose.yml
-│   │
-│   └───postgres
-│       └───init
-│               01_schemas.sql
-│               02_content_tables.sql
-│               03_ugc_tables.sql
-│               04_analytics_tables.sql
-│               05_etl_tables.sql
-│               06_sample_data.sql
-│               07_sample_ratings.sql
-│               08_add_incremental_id_key.sql
-│
-├───sql
-│       init_demo_data.sql
-│
-├───src
-│   │   __init__.py
-│   │
-│   ├───app
-│   │   │   db.py
-│   │   │   dependencies.py
-│   │   │   main.py
-│   │   │   __init__.py
-│   │   │
-│   │   ├───api
-│   │   │   │   __init__.py
-│   │   │   │
-│   │   │   ├───helpers
-│   │   │   │       pipelines.py
-│   │   │   │       __init__.py
-│   │   │   │
-│   │   │   └───v1
-│   │   │           pipelines.py
-│   │   │
-│   │   ├───core
-│   │   │       constants.py
-│   │   │       enums.py
-│   │   │       exceptions.py
-│   │   │       __init__.py
-│   │   │
-│   │   ├───models
-│   │   │       base.py
-│   │   │       etl_pipeline.py
-│   │   │       etl_pipeline_task.py
-│   │   │       etl_run.py
-│   │   │       etl_state.py
-│   │   │       __init__.py
-│   │   │
-│   │   ├───repositories
-│   │   │       interfaces.py
-│   │   │       pipelines.py
-│   │   │       __init__.py
-│   │   │
-│   │   ├───schemas
-│   │   │       pipelines.py
-│   │   │       __init__.py
-│   │   │
-│   │   └───services
-│   │           pipelines.py
-│   │           __init__.py
-│   │
-│   ├───config
-│   │       settings.py
-│   │       __init__.py
-│   │
-│   ├───pipelines
-│   │   │   __init__.py
-│   │   │
-│   │   └───python_demo
-│   │           demo_film_dim.py
-│   │           __init__.py
-│   │
-│   └───runner
-│       │   main.py
-│       │   __init__.py
-│       │
-│       ├───adapters
-│       │       sql_full.py
-│       │       sql_incremental.py
-│       │       transformers.py
-│       │       writers.py
-│       │       __init__.py
-│       │
-│       ├───orchestration
-│       │       dispatcher.py
-│       │       executor.py
-│       │       manager.py
-│       │       __init__.py
-│       │
-│       ├───ports
-│       │       pipeline.py
-│       │       reader.py
-│       │       transform.py
-│       │       writer.py
-│       │       __init__.py
-│       │
-│       ├───repos
-│       │       pipelines.py
-│       │       runs.py
-│       │       state.py
-│       │       __init__.py
-│       │
-│       └───services
-│               db_errors.py
-│               pipeline_snapshot.py
-│               time_utils.py
-│               __init__.py
-│
-├───tests
-│       __init__.py
-
+Manager → Dispatcher → Executor → Adapters
 
 ```
 
----
+### Manager
+- Selects candidate pipelines
+- Creates isolated DB sessions
+- Prevents cascading failures
 
-## 12.2. ETL API (control-plane)
+### Dispatcher
+- Routes by pipeline status
+- Applies retry + backoff
+- Distinguishes business errors vs infra errors
 
-**Назначение:**  
-Управление конфигурацией и жизненным циклом пайплайнов.  
-API **не выполняет ETL**, не знает о батчах, не работает с Elasticsearch напрямую.
+### Executor
+- Chooses execution strategy (full/incremental)
+- Handles `etl_runs`
+- Finalizes pipeline status
+- Delegates to adapters
 
-### Ключевые элементы
-
-#### `app/api/v1/pipelines.py`
-- HTTP endpoints:
-  - create/update pipeline
-  - run / pause
-  - list pipelines
-  - list runs
-- Делегирует логику в `services`
-
-#### `app/services/pipelines.py`
-- Бизнес-правила:
-  - валидация `target_table` через `is_allowed_target`
-  - запрет обновления RUNNING пайплайна
-  - идемпотентный `run_pipeline`
-- Не содержит SQL
-
-#### `app/repositories/sql_pipelines.py`
-- Чистый доступ к БД:
-  - `get_pipeline`
-  - `list_pipelines`
-  - `request_run`
-  - `request_pause`
-- Без бизнес-логики и без знаний о Runner
+### Adapters
+- Implement actual ETL logic
+- Isolated from orchestration
+- Pluggable by design
 
 ---
 
-## 12.3. ETL Runner (data-plane)
+## Security Constraints
 
-**Назначение:**  
-Фактическое выполнение ETL с учётом состояния, retry/backoff, recovery.
+Targets are strictly whitelisted.
 
-Runner **ничего не знает про HTTP** и не импортирует FastAPI.
+### PostgreSQL
+Only predefined `analytics.*` tables are allowed.
 
----
+### Elasticsearch
+Only predefined indexes are allowed.
 
-### 12.3.1. main.py
-
-- `main_loop()`:
-  - startup checks
-  - recovery “залипших RUNNING”
-  - бесконечный polling (`tick`)
-- Обрабатывает только **инфраструктурные ошибки** (DB disconnect)
+This prevents accidental or malicious writes to arbitrary destinations.
 
 ---
 
-### 12.3.2. PipelineManager
+## Extensibility
 
-Файл: `runner/orchestration/manager.py`
+The architecture is designed to support:
 
-Ответственность:
-- найти активные пайплайны
-- открыть fresh DB session для каждого
-- вызвать Dispatcher
-- изолировать падение одного пайплайна от остальных
+- New sinks (ClickHouse, S3, etc.)
+- Python-based pipelines
+- External orchestration (Airflow, Temporal, etc.)
+- Parallel execution
+- DAG-based task plans
 
----
-
-### 12.3.3. PipelineDispatcher
-
-Файл: `runner/orchestration/dispatcher.py`
-
-Ответственность:
-- маршрутизация по статусу:
-  - RUN_REQUESTED
-  - PAUSE_REQUESTED
-  - RUNNING
-- atomic claim (`RUN_REQUESTED -> RUNNING`)
-- retry + backoff:
-  - 3 попытки
-  - 1 / 2 / 4 секунды
-- различает:
-  - бизнес-ошибки (retry)
-  - DB disconnect (выход из tick)
+The control-plane remains stable.
 
 ---
 
-### 12.3.4. PipelineExecutor
+## Trade-offs
 
-Файл: `runner/orchestration/executor.py`
+### What is intentionally missing (MVP scope)
 
-Ответственность:
-- выбор режима выполнения:
-  - full
-  - incremental
-- ведение `etl_runs`
-- фиксация итогового статуса пайплайна
-- делегирование конкретной логики в adapters
+- DAG execution
+- Parallel task execution
+- Scheduling
+- Metrics
+- DLQ
 
-Executor — **единственное место**, где “собирается” весь ETL-процесс.
+These features are intentionally postponed to keep the core system understandable and verifiable.
 
 ---
 
-## 12.4. Adapters (исполнение ETL)
+## Limitations
 
-Adapters — это “плагины” выполнения, изолированные от orchestration.
+- Single execution unit per pipeline
+- Sequential task execution
+- Polling-based orchestration
 
-### sql_full.py
-- выполняет full batch SQL
-- читает `source_query`
-- батчами вызывает transformer → writer
-
-### sql_incremental.py
-- читает `etl_state`
-- использует `(incremental_key, incremental_id_key)`
-- обновляет checkpoint после каждого батча
-- корректно обрабатывает pause
+These are conscious MVP constraints.
 
 ---
 
-### transformers.py
-- нормализация входных строк
-- подготовка данных под writer
-- место для Python-трансформаций в будущем
+## Roadmap
+
+- DAG-based execution plans
+- Parallelism
+- Scheduling
+- Metrics (Prometheus)
+- Dead Letter Queues
+- Additional sinks (S3, ClickHouse)
 
 ---
 
-### writers.py
+## Summary
 
-Sink-абстракция.
+This architecture is designed to prioritize:
 
-- `PostgresWriter`
-  - UPSERT в `analytics.*`
-  - строгий whitelist таблиц
+- Reliability over raw throughput
+- Explicitness over magic
+- Safety over convenience
 
-- `ElasticsearchWriter`
-  - target_table = `es:<index>`
-  - whitelist индексов
-  - bulk upsert
-  - auto-create index + mappings (MVP)
-  - JSON-нормализация типов
+It is intended as a platform foundation, not as a one-off ETL script.
 
----
-
-## 12.5. Ports
-
-### `PipelineLike`
-
-Protocol, позволяющий:
-- использовать один интерфейс для:
-  - SQLAlchemy моделей
-  - snapshot-объектов
-- избежать жёсткой зависимости Runner от ORM
-
----
-
-## 12.6. Почему такая архитектура
-
-- **API и Runner полностью развязаны**
-- Runner можно масштабировать горизонтально
-- можно заменить polling на внешний оркестратор
-- добавление новых sink’ов не ломает существующие
-- код читается “сверху вниз”:
-  - manager → dispatcher → executor → adapters
-
----
+```

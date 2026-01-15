@@ -21,9 +21,8 @@ if TYPE_CHECKING:
     from src.app.models.etl_pipeline_task import EtlPipelineTask
 
 
-
 class EtlPipeline(Base):
-    """Описание ETL-пайплайна (etl.etl_pipelines)."""
+    """ETL pipeline definition (etl.etl_pipelines)."""
 
     __tablename__ = "etl_pipelines"
     __table_args__ = (
@@ -51,22 +50,22 @@ class EtlPipeline(Base):
     name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # "SQL" / "PYTHON"
+    # Pipeline type: "SQL" / "PYTHON"
     type: Mapped[str] = mapped_column(
         Text,
         nullable=False,
         default="SQL",
     )
 
-    # Базовый SQL-источник для SQL-пайплайнов (может быть NULL для PYTHON)
+    # Base SQL source for SQL pipelines (may be NULL for PYTHON)
     source_query: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # Для PYTHON пайплайнов: dotted path до модуля с transform()
+    # For PYTHON pipelines: dotted import path to a module with transform()
     python_module: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     target_table: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # "full" / "incremental"
+    # Execution mode: "full" / "incremental"
     mode: Mapped[str] = mapped_column(
         Text,
         nullable=False,

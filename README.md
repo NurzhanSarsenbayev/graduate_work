@@ -1,108 +1,223 @@
 
-link: https://github.com/NurzhanSarsenbayev/graduate_work
+link:
 
-# ETL Platform — Postgres & Elasticsearch
+# Fault-Tolerant ETL Platform
 
-ETL-платформа для построения аналитических витрин и поисковых индексов
-в онлайн-кинотеатре.
+A platform prototype for building analytical data marts and search indexes in a distributed environment.
 
-Проект реализует разделение на:
-
-* **Control-plane** — ETL API (FastAPI)
-* **Data-plane** — ETL Runner (Python worker)
-
-Это позволяет управлять пайплайнами через REST API
-и выполнять ETL асинхронно в отдельном процессе.
+This system is designed for **reliable, resumable, and idempotent data pipelines** with explicit separation between
+**control-plane** (management) and **data-plane** (execution).
 
 ---
 
-## 🚀 Возможности (MVP)
+## Overview
 
-* SQL-пайплайны (`full` / `incremental`)
-* **Pipeline Tasks (v1)**:
+This platform allows you to:
 
-  * SQL reader + Python transforms
-* Батчевая обработка данных
-* Idempotent UPSERT
-* Pause / Resume (между батчами)
-* Retry с backoff (1 / 2 / 4 сек)
-* Recovery после сбоев
-* Sink’и:
+- Define ETL pipelines via a REST API
+- Execute them asynchronously in a separate worker process
+- Process data in batches
+- Resume after failures
+- Support incremental loading
+- Write results to PostgreSQL and Elasticsearch
 
-  * PostgreSQL (`analytics.*`)
-  * Elasticsearch (`es:<index>`)
-* Управление через REST API
-* Docker-first
+The main design goal is **operational reliability**: pipelines should not break on transient errors, should be resumable,
+and should never corrupt target data.
 
 ---
 
-## 🧩 Pipeline Tasks (v1)
+## Problem It Solves
 
-Pipeline может быть описан **двумя способами**:
+In many real-world systems, data pipelines are:
 
-1. **Legacy mode** — через `source_query`
-2. **Tasks mode (v1)** — через линейный task plan
+- Fragile
+- Hard to resume after failure
+- Not idempotent
+- Tightly coupled to their execution logic
+- Difficult to observe and control
 
-Если у пайплайна определены tasks, они имеют приоритет над `source_query`.
+This platform addresses these issues by introducing:
 
-### Ограничения v1 (осознанный MVP)
-
-* задачи выполняются **строго последовательно**
-* **первый шаг — SQL reader**
-* последующие шаги — **Python transforms**
-* DAG, branching и параллельность **не поддерживаются**
-* pipeline остаётся **одним execution unit**
-
-Пример:
-
-```
-[ SQL reader ] → [ Python transform ] → sink
-```
+- A dedicated **control-plane** for pipeline management
+- A dedicated **data-plane** for execution
+- Explicit state machines
+- Batch-based execution
+- Idempotent writes
+- Pause/Resume semantics
+- Automatic retries with exponential backoff
 
 ---
 
-## 🧱 Архитектура (кратко)
+## Key Features
+
+- Full and incremental SQL pipelines
+- Batch-based processing
+- Idempotent UPSERT semantics
+- Pause / Resume between batches
+- Automatic retries with exponential backoff (1s → 2s → 4s)
+- Failure recovery
+- REST API for pipeline management
+- Docker-first setup
+- Multiple sinks:
+  - PostgreSQL (`analytics.*`)
+  - Elasticsearch (`es:<index>`)
+
+---
+
+## Architecture
 
 ```
+
 Client
-  |
-  v
+|
+v
 ETL API (FastAPI) ──► Postgres (etl schema)
-        ▲
-        |
-   ETL Runner (worker)
-        |
- +------+------------------+
- |                         |
+▲
+|
+ETL Runner (worker)
+|
++------+------------------+
+|                         |
 Postgres (analytics)   Elasticsearch
+
 ```
 
-* **ETL API** — управление пайплайнами и статусами
-* **ETL Runner** — выполнение ETL, state, retry, recovery
-* **Postgres** — source + analytics + ETL metadata
-* **Elasticsearch** — поисковые / feature-витрины
+### Components
 
-Подробно см. `ARCHITECTURE.md`.
+- **ETL API (Control-plane)**  
+  Responsible for pipeline management, state transitions, and orchestration.
+
+- **ETL Runner (Data-plane)**  
+  A worker process that executes pipelines, handles retries, batching, and recovery.
+
+- **PostgreSQL**  
+  Used as:
+  - Source
+  - Analytics storage
+  - Metadata and state storage
+
+- **Elasticsearch**  
+  Used as a search/indexing sink.
+
+See `docs/ARCHITECTURE.md` for a more detailed description.
 
 ---
 
-## 🐳 Запуск проекта
+## Control-plane vs Data-plane
 
-### 1. Подготовка
+### Control-plane
+
+- Pipeline creation
+- Status management
+- Validation
+- Security checks
+- State transitions
+
+### Data-plane
+
+- Data extraction
+- Transformations
+- Batch execution
+- Writes to sinks
+- Retry and recovery logic
+
+This separation allows:
+
+- Independent scaling
+- Better fault isolation
+- Clear operational boundaries
+
+---
+
+## Pipeline Execution Model
+
+Pipelines can be defined in two ways:
+
+1. **Legacy mode** — a single SQL source query
+2. **Tasks mode (v1)** — a linear execution plan
+
+If tasks are defined, they take priority over the legacy mode.
+
+### Tasks Mode (v1) Limitations (Intentional MVP Scope)
+
+- Tasks are executed strictly sequentially
+- The first step must be an SQL reader
+- All subsequent steps are Python transforms
+- No DAGs, branching, or parallelism
+- Each pipeline is a single execution unit
+
+Example:
+
+```
+
+[ SQL Reader ] → [ Python Transform ] → Sink
+
+````
+
+---
+
+## Incremental vs Full Pipelines
+
+- **Full pipelines** process the entire dataset
+- **Incremental pipelines** resume from the last processed checkpoint
+
+Incremental execution is implemented via:
+
+- Explicit state tracking
+- Batch-based pagination
+- Persistent checkpoints
+- Idempotent writes
+
+---
+
+## Failure Handling & Recovery
+
+This system is designed to be **operationally safe by default**.
+
+### Guarantees
+
+- No partial writes
+- No duplicate data
+- Safe retries
+- Resume after crash
+
+### Mechanisms
+
+- Explicit pipeline states
+- Batch-level checkpointing
+- Automatic retries (3 attempts)
+- Exponential backoff: 1s → 2s → 4s
+- Idempotent UPSERT semantics
+
+---
+
+## Pause / Resume Semantics
+
+Pipelines can be paused and resumed via the API.
+
+> Important:  
+> Pausing only happens **between batches**.  
+> A currently running batch is always completed safely.
+
+---
+
+## Quickstart
+
+### 1. Prepare environment
 
 ```bash
 cp .env.example .env
-```
+````
 
-(значения по умолчанию подходят для `docker-compose`)
+Default values work with docker-compose.
 
-### 2. Запуск
+### 2. Start the system
 
 ```bash
 make up
 ```
 
-Проверка сервисов:
+Health checks:
 
 ```bash
 curl http://localhost:8000/api/v1/health
@@ -111,9 +226,9 @@ curl http://localhost:9200
 
 ---
 
-## 📦 Создание пайплайнов
+## Creating Pipelines
 
-### 1. SQL → Postgres (витрина)
+### SQL → PostgreSQL (Analytics Mart)
 
 ```bash
 make api-create-sql-film-rating-agg \
@@ -121,7 +236,7 @@ make api-create-sql-film-rating-agg \
   BATCH=200
 ```
 
-### 2. SQL → Elasticsearch
+### SQL → Elasticsearch
 
 ```bash
 make api-create-es-film-rating-agg \
@@ -131,30 +246,17 @@ make api-create-es-film-rating-agg \
 
 ---
 
-## ▶️ Запуск пайплайна
+## Running a Pipeline
 
 ```bash
 make api-run ID=<pipeline_id>
 ```
 
-Runner автоматически подхватит `RUN_REQUESTED`
-и выполнит пайплайн.
+The runner automatically picks up pipelines in `RUN_REQUESTED` state.
 
 ---
 
-## ⏸ Pause / Resume
-
-```bash
-make api-pause ID=<pipeline_id>
-make api-run   ID=<pipeline_id>
-```
-
-⚠️ Пауза применяется **между батчами** — текущий batch
-всегда корректно завершается.
-
----
-
-## 🔎 Проверка результата
+## Verifying Results
 
 ### PostgreSQL
 
@@ -170,11 +272,11 @@ curl "http://localhost:9200/film_rating_agg/_search?size=5" | jq
 
 ---
 
-## 🔐 Ограничения безопасности (MVP)
+## Security Constraints (MVP)
 
-Разрешены только whitelisted target’ы.
+Only whitelisted targets are allowed.
 
-Postgres:
+PostgreSQL:
 
 ```python
 ALLOWED_TARGET_TABLES = {
@@ -192,12 +294,11 @@ ALLOWED_ES_INDEXES = {
 }
 ```
 
-Попытка писать в другой target будет отклонена
-на уровне API и Runner.
+Any attempt to write to a non-whitelisted target is rejected by both API and Runner.
 
 ---
 
-## 🧠 Состояния пайплайна
+## Pipeline States
 
 * `IDLE`
 * `RUN_REQUESTED`
@@ -206,14 +307,14 @@ ALLOWED_ES_INDEXES = {
 * `PAUSED`
 * `FAILED`
 
-Retry:
+Retry policy:
 
-* 3 попытки
-* backoff: 1s → 2s → 4s
+* 3 attempts
+* Exponential backoff: 1s → 2s → 4s
 
 ---
 
-## 📂 Структура проекта
+## Project Structure
 
 ```
 src/
@@ -228,29 +329,50 @@ docs/
 
 ---
 
-## 🔍 Проверочные сценарии
+## Demo Scenarios
 
-Подробные пошаговые проверки (full / incremental / tasks / pause / ES)
-вынесены в отдельный файл:
+Step-by-step validation scenarios (full, incremental, tasks mode, pause/resume, Elasticsearch) are documented in:
 
-👉 **`docs/demo_checks.md`**
+👉 `docs/demo_checks.md`
 
 ---
 
-## 🔭 Планы развития
+## Design Decisions
 
-* DAG-based task plans (beyond linear v1)
-* Параллельное выполнение задач
-* Schedules (cron / Airflow)
+* Control-plane / Data-plane separation
+* Explicit state machine
+* Batch-based execution
+* Idempotent writes
+* Minimal DAG features (intentional MVP scope)
+* Whitelisted targets for safety
+
+---
+
+## Limitations (Current MVP Scope)
+
+* No DAGs
+* No parallel tasks
+* No scheduling
+* No metrics yet
+* No DLQ
+
+---
+
+## Roadmap
+
+* DAG-based task plans
+* Parallel execution
+* Scheduling (cron / Airflow integration)
 * Metrics (Prometheus)
-* DLQ
-* Новые sink’и (S3 / ClickHouse)
+* Dead Letter Queue (DLQ)
+* New sinks (S3, ClickHouse)
 
 ---
 
-## 🧑‍💻 Автор
+## Author
 
 **Nurzhan Sarsenbayev**
-Diploma Project — Python Backend / Data Engineering
+Platform / Data Backend Engineer
+Python, ETL, Distributed Systems
 
----
+```

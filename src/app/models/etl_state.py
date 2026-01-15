@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 class EtlState(Base):
-    """Состояние пайплайна (checkpoint) — etl.etl_state."""
+    """Pipeline state (checkpoint) — etl.etl_state."""
 
     __tablename__ = "etl_state"
     __table_args__ = (

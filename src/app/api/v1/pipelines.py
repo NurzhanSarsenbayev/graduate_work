@@ -48,7 +48,7 @@ async def create_pipeline_endpoint(
     except PipelineNameAlreadyExistsError as exc:
         raise http_400(str(exc))
     except ValueError as exc:
-        # target_table не из ALLOWED_TARGET_TABLES и т.п.
+        # target_table is not in ALLOWED_TARGET_TABLES, etc.
         raise http_400(str(exc))
 
     return PipelineOut.model_validate(pipeline)
@@ -67,7 +67,7 @@ async def run_pipeline_endpoint(
     pipeline_id: UUID,
     service: PipelinesService = Depends(get_pipelines_service),
 ) -> PipelineOut:
-    """Запрос на запуск пайплайна: статус -> RUN_REQUESTED."""
+    """Pipeline run request: status -> RUN_REQUESTED."""
     try:
         pipeline = await service.run_pipeline(str(pipeline_id))
     except PipelineNotFoundError:
@@ -81,7 +81,7 @@ async def pause_pipeline_endpoint(
     pipeline_id: UUID,
     service: PipelinesService = Depends(get_pipelines_service),
 ) -> PipelineOut:
-    """Запрос на паузу пайплайна: статус -> PAUSE_REQUESTED."""
+    """Pipeline pause request: status -> PAUSE_REQUESTED."""
     try:
         pipeline = await service.pause_pipeline(str(pipeline_id))
     except PipelineNotFoundError:
@@ -96,15 +96,14 @@ async def update_pipeline_endpoint(
     payload: PipelineUpdate,
     service: PipelinesService = Depends(get_pipelines_service),
 ) -> PipelineOut:
-    """Частичное обновление пайплайна.
+    """Partial pipeline update.
 
-    Бизнес-правило:
-    - если пайплайн в статусе RUNNING — запрещаем изменения.
+    Rule:
+    - if pipeline is RUNNING - prohibit update.
     """
     update_data = payload.model_dump(exclude_unset=True)
 
     if not update_data:
-        # Нечего менять — вернём текущее состояние, если пайплайн существует
         return await get_pipeline_or_404(service, pipeline_id)
 
     try:
@@ -123,16 +122,15 @@ async def update_pipeline_endpoint(
 @router.get(
     "/{pipeline_id}/runs",
     response_model=list[PipelineRunOut],
-    summary="Получить историю запусков пайплайна",
+    summary="Get list of pipeline runs",
 )
 async def get_pipeline_runs_endpoint(
     pipeline_id: UUID,
     limit: int = Query(50, ge=1, le=500),
     service: PipelinesService = Depends(get_pipelines_service),
 ) -> list[PipelineRunOut]:
-    """Вернуть историю запусков для конкретного пайплайна."""
+    """Get list of runs for a pipeline."""
     try:
-        # убеждаемся, что пайплайн существует
         await service.get_pipeline(str(pipeline_id))
     except PipelineNotFoundError:
         raise http_404("Pipeline not found")

@@ -2,16 +2,16 @@ from __future__ import annotations
 
 
 class PipelineError(Exception):
-    """Базовая ошибка домена ETL-пайплайнов."""
+    """Base class for exceptions in this module"""
 
 
 class PipelineNotFoundError(PipelineError):
-    """Пайплайн с указанным ID не найден."""
+    """Pipeline with the given ID was not found."""
 
 
 class PipelineIsRunningError(PipelineError):
-    """Запрещено выполнять операцию над пайплайном в статусе RUNNING."""
+    """Operation is not allowed while the pipeline is in RUNNING state."""
 
 
 class PipelineNameAlreadyExistsError(PipelineError):
-    """Пайплайн с таким именем уже существует."""
+    """A pipeline with this name already exists."""

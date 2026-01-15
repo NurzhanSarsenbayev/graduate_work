@@ -31,7 +31,7 @@ class PipelineSnapshot:
     target_table: str
     incremental_key: Optional[str]
     incremental_id_key: Optional[str]
-    description: Optional[str] = None  # для legacy fallback в transformer
+    description: Optional[str] = None  # legacy fallback in transformer
     tasks: tuple[TaskSnapshot, ...] = ()
 
 

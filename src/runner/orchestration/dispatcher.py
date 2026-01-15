@@ -18,7 +18,7 @@ logger = logging.getLogger("etl_runner")
 
 
 class PipelineDispatcher:
-    """Оркестрация одного пайплайна:
+    """Orchestrates a single pipeline execution:
     pause/claim/retry/execution/final status."""
 
     def __init__(
@@ -48,7 +48,7 @@ class PipelineDispatcher:
             claimed = await self._pipelines.claim_run_requested(
                 session, pipeline.id)
             if claimed is None:
-                return  # другой раннер забрал
+                return  # claimed by another runner
 
             snap: PipelineSnapshot = await snapshot_pipeline_with_tasks(
                 session, claimed)
@@ -93,12 +93,12 @@ class PipelineDispatcher:
 
                     logger.error(
                         "Pipeline id=%s name=%s"
-                        " attempt %d/%d окончательно FAILED: %r",
+                        " attempt %d/%d FAILED permanently: %r",
                         pid, pname, attempt, self._max_attempts, exc,
                     )
                     raise
 
-        # 3) если уже RUNNING — не трогаем
+        # 3) If already RUNNING — do not touch it
         if pipeline.status == PipelineStatus.RUNNING.value:
             logger.info("Skip pipeline %s: already RUNNING", pipeline.id)
             return

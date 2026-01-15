@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -40,7 +39,7 @@ class PythonCallableTransformer:
             )
 
         result = fn(rows, pipeline=pipeline)
-        # допускаем sync-функцию, но если вернул awaitable — поддержим
+        # Allow a sync function, but if it returns an awaitable — await it.
         if hasattr(result, "__await__"):
             result = await result  # type: ignore[misc]
 
@@ -53,25 +52,25 @@ class PythonCallableTransformer:
 
 
 def resolve_transformer(pipeline: PipelineLike) -> Transformer:
-    # 1) не PYTHON — просто пропускаем
+    # 1) Not a PYTHON pipeline — no-op transformer.
     if pipeline.type != "PYTHON":
         return NoOpTransformer()
 
-    # 2) основной (правильный) контракт
+    # 2) Primary (preferred) contract.
     module_path = (getattr(pipeline, "python_module", None) or "").strip()
     if module_path:
         return PythonCallableTransformer(dotted_path=module_path)
 
-    # 3) fallback для старых пайплайнов (временно)
+    # 3) Temporary legacy fallback for older pipelines.
     desc = (pipeline.description or "").strip()
     if desc.startswith("py:"):
         legacy_path = desc.removeprefix("py:").strip()
         if legacy_path:
             return PythonCallableTransformer(dotted_path=legacy_path)
 
-    # 4) если ничего не нашли — понятная ошибка
+    # 4) If nothing is configured — raise a clear error.
     raise ValueError(
         "PYTHON pipeline requires python_module. "
-        "Set pipeline.python_module='src.pipelines.python_demo.demo_film_dim' "
+        "Set pipeline.python_module='src.pipelines.python_tasks.demo_film_dim' "
         "or (legacy) description='py:...'"
     )

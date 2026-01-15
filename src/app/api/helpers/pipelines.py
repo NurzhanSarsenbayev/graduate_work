@@ -13,7 +13,7 @@ async def get_pipeline_or_404(
     service: PipelinesService,
     pipeline_id: UUID,
 ) -> PipelineOut:
-    """Получить пайплайн или бросить HTTP 404."""
+    """Get a pipeline or raise HTTP 404."""
     try:
         pipeline = await service.get_pipeline(str(pipeline_id))
     except PipelineNotFoundError:

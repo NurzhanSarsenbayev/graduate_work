@@ -11,7 +11,7 @@ TransformFn = Callable[[Sequence[Row]], Any]
 def load_python_transform(dotted_path: str) -> TransformFn:
     """
     dotted_path: 'src.pipelines.some_task' where module exports transform(rows)
-    transform может быть sync или async.
+    transform can be sync/async.
     """
     mod = importlib.import_module(dotted_path)
     fn = getattr(mod, "transform", None)
@@ -27,5 +27,4 @@ async def apply_transform(
     res = fn(rows)
     if inspect.isawaitable(res):
         res = await res
-    # допускаем, что вернули list[dict] или tuple[dict]
     return res

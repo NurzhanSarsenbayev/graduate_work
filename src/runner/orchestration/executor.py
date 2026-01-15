@@ -33,8 +33,7 @@ RunnerFn = Callable[[ExecutionContext,
 
 
 class PipelineExecutor:
-    """Исполнение одного пайплайна
-     (создать run -> прогнать ETL -> завершить run)."""
+    """Execute a single pipeline (start run -> ETL -> finish run)."""
 
     def __init__(
         self,
@@ -105,7 +104,7 @@ class PipelineExecutor:
             pipeline: PipelineLike) -> tuple[int, int]:
         tasks = getattr(pipeline, "tasks", ())
         if tasks:
-            # здесь pipeline = PipelineSnapshot (по факту)
+            # Here `pipeline` is effectively a PipelineSnapshot.
             snap = validate_tasks_v1(pipeline)  # type: ignore[arg-type]
 
             if snap.mode == "full":

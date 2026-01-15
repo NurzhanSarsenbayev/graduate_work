@@ -18,7 +18,7 @@ from src.app.schemas.pipelines import PipelineCreate
 
 
 class PipelinesService:
-    """Сервисный слой для работы с ETL-пайплайнами."""
+    """Service layer for managing ETL pipelines."""
 
     def __init__(
         self,
@@ -28,53 +28,52 @@ class PipelinesService:
         self.session = session
         self.repo = repo or SQLPipelinesRepository()
 
-    # ---------- CRUD пайплайнов ----------
+    # ---------- Pipeline CRUD ----------
 
     async def list_pipelines(self) -> Sequence[EtlPipeline]:
-        """Вернуть все пайплайны."""
+        """Return all pipelines."""
         return await self.repo.list_pipelines(self.session)
 
     async def get_pipeline(self, pipeline_id: str) -> EtlPipeline:
-        """Вернуть пайплайн по id или бросить PipelineNotFoundError."""
+        """Return a pipeline by id or raise PipelineNotFoundError."""
         try:
             return await self.repo.get_pipeline(self.session, pipeline_id)
         except PipelineNotFoundError:
-            # просто прокидываем доменную ошибку дальше
+            # Pass through the domain error as-is.
             raise
 
     async def create_pipeline(self, payload: PipelineCreate) -> EtlPipeline:
-        """Создать новый пайплайн.
+        """Create a new pipeline.
 
-        Валидация бизнес-правил (target_table и т.п.) — здесь,
-        репозиторий отвечает только за сохранение.
+        Business rule validation (target_table, etc.) lives here.
+        The repository is responsible only for persistence.
         """
-
         if not is_allowed_target(payload.target_table):
-            raise ValueError(f"target_table "
-                             f"'{payload.target_table}' is not allowed")
+            raise ValueError(
+                f"target_table '{payload.target_table}' is not allowed"
+            )
 
         try:
             return await self.repo.create_pipeline(self.session, payload)
         except IntegrityError as exc:
-            # Откатываем транзакцию
+            # Roll back the transaction.
             await self.session.rollback()
 
-            # На этом уровне считаем,
-            # что основная причина IntegrityError — дубликат имени.
-            # Если потом появятся другие уникальные ограничения, можно будет
-            # добавить более тонкое разруливание.
+            # At this level we assume the most common IntegrityError cause
+            # is a duplicate pipeline name. If more unique constraints are
+            # added later, we can refine this handling.
             raise PipelineNameAlreadyExistsError(
-                "Pipeline with this name already exists"
+                "A pipeline with this name already exists"
             ) from exc
 
-    # ---------- Управление статусами ----------
+    # ---------- Status management ----------
 
     async def run_pipeline(self, pipeline_id: str) -> EtlPipeline:
-        """Запросить запуск пайплайна (RUN_REQUESTED) атомарно."""
-        # Проверяем, что пайплайн существует
+        """Request a pipeline run atomically (status -> RUN_REQUESTED)."""
+        # Ensure the pipeline exists.
         pipeline = await self.get_pipeline(pipeline_id)
 
-        # Идемпотентность: если уже RUNNING/RUN_REQUESTED — просто возвращаем
+        # Idempotency: if already RUNNING / RUN_REQUESTED, return as-is.
         if pipeline.status in (
             PipelineStatus.RUNNING.value,
             PipelineStatus.RUN_REQUESTED.value,
@@ -85,11 +84,11 @@ class PipelinesService:
         if updated is not None:
             return updated
 
-        # Если переход не случился (например, FAILED) — возвращаем текущее
+        # If transition did not happen (e.g., FAILED), return current state.
         return await self.get_pipeline(pipeline_id)
 
     async def pause_pipeline(self, pipeline_id: str) -> EtlPipeline:
-        """Запросить паузу (PAUSE_REQUESTED) атомарно."""
+        """Request a pipeline pause atomically (status -> PAUSE_REQUESTED)."""
         pipeline = await self.get_pipeline(pipeline_id)
 
         if pipeline.status in (
@@ -109,42 +108,43 @@ class PipelinesService:
         pipeline_id: str,
         update_data: dict,
     ) -> EtlPipeline:
-        """Частично обновить пайплайн.
+        """Partially update a pipeline.
 
-        Правило:
-        - если пайплайн в статусе RUNNING — не даём его обновлять.
+        Rule:
+        - if the pipeline is RUNNING, updates are not allowed.
         """
         pipeline = await self.get_pipeline(pipeline_id)
 
         if pipeline.status == PipelineStatus.RUNNING.value:
             raise PipelineIsRunningError(
-                "Cannot update pipeline while it is RUNNING")
+                "Cannot update pipeline while it is RUNNING"
+            )
 
         updated = await self.repo.update_pipeline(
             session=self.session,
             pipeline_id=pipeline_id,
             data=update_data,
         )
-        # repo.update_pipeline либо вернёт объект,
-        # либо кинет свою ошибку, если там что-то пойдёт не так.
+        # repo.update_pipeline either returns an object,
+        # or raises its own error if something goes wrong.
         if updated is None:
-            # На всякий случай, если репо вернуло None (гонки и т.п.)
+            # Defensive: if repo returned None (race conditions, etc.).
             raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found")
 
         return updated
 
-    # ---------- История запусков ----------
+    # ---------- Run history ----------
 
     async def list_pipeline_runs(
         self,
         pipeline_id: str,
         limit: int,
     ) -> Sequence[EtlRun]:
-        """Вернуть историю запусков по пайплайну.
+        """Return run history for a pipeline.
 
-        Если пайплайна нет — логично бросить PipelineNotFoundError.
+        If the pipeline does not exist, raise PipelineNotFoundError.
         """
-        # Проверяем, что пайплайн существует
+        # Ensure the pipeline exists.
         await self.get_pipeline(pipeline_id)
 
         return await self.repo.list_pipeline_runs(
