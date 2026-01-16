@@ -1,6 +1,4 @@
 
-link:
-
 # Fault-Tolerant ETL Platform
 
 A platform prototype for building analytical data marts and search indexes in a distributed environment.
@@ -172,14 +170,28 @@ Incremental execution is implemented via:
 
 ## Failure Handling & Recovery
 
-This system is designed to be **operationally safe by default**.
+This system is designed for **operational safety** and predictable recovery.
 
-### Guarantees
+### Processing semantics (actual guarantees)
 
-- No partial writes
-- No duplicate data
-- Safe retries
-- Resume after crash
+- **At-least-once processing**: a batch may be re-processed after a crash or transient failure.
+- **Idempotent sinks**:
+  - PostgreSQL writes use **UPSERT** semantics.
+  - Elasticsearch writes use **upsert by document id**.
+  This makes retries safe and prevents logical duplicates in the target.
+- **Batch-level progress**:
+  - Each batch is committed independently.
+  - Partial progress is expected and is considered a feature (fast recovery), not corruption.
+- **Checkpoint-based resume (incremental mode)**:
+  - The runner persists a checkpoint after a successful batch.
+  - After restart, incremental pipelines resume from the last checkpoint.
+
+### What is NOT guaranteed (MVP scope)
+
+- **Exactly-once end-to-end** semantics (not required here; we rely on idempotent sinks).
+- **FULL mode resume from the exact last offset** (FULL uses batch pagination; see limitations).
+- **Delete propagation** from source to targets.
+- **Late-arriving / backdated updates** if `updated_at` is not monotonic (can be addressed with a watermark overlap window).
 
 ### Mechanisms
 
@@ -199,6 +211,10 @@ Pipelines can be paused and resumed via the API.
 > Pausing only happens **between batches**.  
 > A currently running batch is always completed safely.
 
+Operational notes:
+- Pause is **cooperative**: the runner checks the pause flag **between batches**.
+- A batch is always fully written and committed before the pipeline transitions to `PAUSED`.
+
 ---
 
 ## Quickstart
@@ -206,7 +222,7 @@ Pipelines can be paused and resumed via the API.
 ### 1. Prepare environment
 
 ```bash
-cp .env.example .env
+cp .env.sample .env
 ````
 
 Default values work with docker-compose.
@@ -312,6 +328,13 @@ Retry policy:
 * 3 attempts
 * Exponential backoff: 1s → 2s → 4s
 
+### Crash / restart behavior (MVP)
+
+If the runner crashes or loses DB connectivity during execution:
+- The pipeline/run may remain in `RUNNING` until the next runner startup.
+- On startup, the runner performs recovery and marks stale `RUNNING` executions as failed.
+- Re-running the pipeline is safe due to idempotent sinks; incremental pipelines continue from the last checkpoint.
+
 ---
 
 ## Project Structure
@@ -350,11 +373,15 @@ Step-by-step validation scenarios (full, incremental, tasks mode, pause/resume, 
 
 ## Limitations (Current MVP Scope)
 
-* No DAGs
-* No parallel tasks
-* No scheduling
-* No metrics yet
-* No DLQ
+- No DAGs / branching / parallel task execution (tasks mode is linear).
+- No scheduling (cron/Airflow integration is out of scope).
+- **FULL mode uses LIMIT/OFFSET pagination** (MVP):
+  - requires deterministic `ORDER BY` in the source query for stable results,
+  - not recommended for highly mutable sources.
+- **Deletes are not propagated** from source to sinks.
+- **Late-arriving/backdated updates** may be missed in incremental mode if `updated_at` is not monotonic.
+- No metrics/exporters yet (only logs).
+- No persistent “dead batch storage” for failed payloads (future improvement).
 
 ---
 
@@ -364,7 +391,7 @@ Step-by-step validation scenarios (full, incremental, tasks mode, pause/resume, 
 * Parallel execution
 * Scheduling (cron / Airflow integration)
 * Metrics (Prometheus)
-* Dead Letter Queue (DLQ)
+* Failed batch storage + replay (DLQ-style for batches)
 * New sinks (S3, ClickHouse)
 
 ---

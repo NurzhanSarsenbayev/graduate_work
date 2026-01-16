@@ -17,6 +17,18 @@ from src.app.repositories.pipelines import SQLPipelinesRepository
 from src.app.schemas.pipelines import PipelineCreate
 
 
+def _validate_pipeline_config(final: dict) -> None:
+    mode = final.get("mode")
+    ptype = final.get("type")
+
+    if mode == "incremental":
+        if not final.get("incremental_key") or not final.get("incremental_id_key"):
+            raise ValueError("incremental mode requires incremental_key and incremental_id_key")
+
+    if ptype == "PYTHON":
+        if not final.get("python_module"):
+            raise ValueError("PYTHON pipelines require python_module")
+
 class PipelinesService:
     """Service layer for managing ETL pipelines."""
 
@@ -103,6 +115,7 @@ class PipelinesService:
 
         return await self.get_pipeline(pipeline_id)
 
+
     async def update_pipeline(
         self,
         pipeline_id: str,
@@ -116,9 +129,17 @@ class PipelinesService:
         pipeline = await self.get_pipeline(pipeline_id)
 
         if pipeline.status == PipelineStatus.RUNNING.value:
-            raise PipelineIsRunningError(
-                "Cannot update pipeline while it is RUNNING"
-            )
+            raise PipelineIsRunningError("Cannot update pipeline while it is RUNNING")
+
+        final = {
+            "type": pipeline.type,
+            "mode": pipeline.mode,
+            "incremental_key": pipeline.incremental_key,
+            "incremental_id_key": pipeline.incremental_id_key,
+            "python_module": pipeline.python_module,
+            **update_data,
+        }
+        _validate_pipeline_config(final)
 
         updated = await self.repo.update_pipeline(
             session=self.session,

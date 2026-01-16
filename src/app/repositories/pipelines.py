@@ -62,6 +62,7 @@ class SQLPipelinesRepository:
             source_query=payload.source_query,
             python_module=payload.python_module,
             incremental_key=payload.incremental_key,
+            incremental_id_key=payload.incremental_id_key,
         )
 
         session.add(pipeline)

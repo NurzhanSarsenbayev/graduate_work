@@ -7,6 +7,7 @@ BATCH ?= 100
 NAME  ?= film_dim
 MODE ?= full
 KEY  ?= updated_at
+ID_KEY ?= id
 INC_ID_KEY ?= film_id
 SLEEP ?= 0.2     # seconds of pg_sleep per row
 DELAY ?= 1       # delay before sending pause request
@@ -161,7 +162,7 @@ api-create-sql-film-dim-slow:
 api-create-sql-film-dim-inc:
 	curl -s -X POST $(PIPES)/ \
 	  -H "Content-Type: application/json" \
-	  -d "{\"name\":\"$(NAME)_inc\",\"description\":\"Incremental SQL pipeline\",\"type\":\"SQL\",\"mode\":\"incremental\",\"enabled\":true,\"batch_size\":$(BATCH),\"incremental_key\":\"updated_at\",\"target_table\":\"analytics.film_dim\",\"source_query\":\"SELECT id AS film_id, title, rating, updated_at FROM content.film_work\"}" | $(JSON_FMT)
+	  -d "{\"name\":\"$(NAME)_inc\",\"description\":\"Incremental SQL pipeline\",\"type\":\"SQL\",\"mode\":\"incremental\",\"enabled\":true,\"batch_size\":$(BATCH),\"incremental_key\":\"updated_at\",\"incremental_id_key\":\"id\",\"target_table\":\"analytics.film_dim\",\"source_query\":\"SELECT id AS film_id, title, rating, updated_at FROM content.film_work\"}" | $(JSON_FMT)
 
 api-create-sql-film-dim-inc-slow:
 	curl -s -X POST $(PIPES)/ \
@@ -173,6 +174,7 @@ api-create-sql-film-dim-inc-slow:
 \"enabled\":true,\
 \"batch_size\":$(BATCH),\
 \"incremental_key\":\"$(KEY)\",\
+\"incremental_id_key\":\"$(ID_KEY)\",\
 \"target_table\":\"analytics.film_dim\",\
 \"source_query\":\"SELECT id AS film_id, title, rating, updated_at FROM content.film_work CROSS JOIN LATERAL (SELECT pg_sleep($(SLEEP))) s\"}" \
 	| $(JSON_FMT)
