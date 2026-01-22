@@ -76,7 +76,7 @@ class RunsRepo:
         )
         await session.execute(stmt)
         await session.commit()
-        logger.error("ETL run id=%s FAILED: %s", run_id, error_message)
+        logger.error("ETL run id=%s FAILED: %s", run_id, error_message[:300])
 
     async def recover_running_failed_bulk(
             self,

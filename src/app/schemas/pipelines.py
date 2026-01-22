@@ -77,6 +77,15 @@ class PipelineCreate(PipelineBase):
     @model_validator(mode="after")
     def validate_business_rules(self):
         if self.mode == "incremental":
+            q = self.source_query.lower()
+
+            # very lightweight contract check (not a SQL parser)
+            if self.incremental_key and self.incremental_key.lower() not in q:
+                raise ValueError("source_query must include incremental_key in SELECT output")
+
+            if self.incremental_id_key and self.incremental_id_key.lower() not in q:
+                raise ValueError("source_query must include incremental_id_key in SELECT output")
+
             if not self.incremental_key or not self.incremental_id_key:
                 raise ValueError("incremental mode requires incremental_key and incremental_id_key")
         if self.type == "PYTHON":
@@ -105,6 +114,8 @@ class PipelineUpdate(BaseModel):
     @field_validator("name")
     @classmethod
     def validate_name(cls, v: str | None) -> str | None:
+        if v == "":
+            return None
         if v is None:
             return v
         v = v.strip()

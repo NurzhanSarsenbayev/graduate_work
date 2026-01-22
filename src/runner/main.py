@@ -74,14 +74,21 @@ async def main_loop(poll_interval: float = 5.0) -> NoReturn:
     async with async_session_factory() as session:  # type: AsyncSession
         pipeline_ids = await pipelines_repo.list_stuck_running_ids(session)
         if pipeline_ids:
-            await pipelines_repo.mark_failed_bulk(session, pipeline_ids)
+            # mark previous RUNNING runs as FAILED (honest history)
             await runs_repo.recover_running_failed_bulk(session, pipeline_ids)
-            logger.warning("Recovered %d stuck"
-                           " RUNNING pipeline(s) after crash",
-                           len(pipeline_ids))
+
+            # re-queue pipelines for execution
+            updated = await pipelines_repo.mark_run_requested_bulk(session, pipeline_ids)
+
+            await session.commit()
+
+            logger.warning(
+                "Recovered %d stuck RUNNING pipeline(s): runs->FAILED, pipelines->RUN_REQUESTED (updated=%d)",
+                len(pipeline_ids),
+                updated,
+            )
         else:
-            logger.info("No stuck RUNNING pipelines"
-                        " found (recovery not needed)")
+            logger.info("No stuck RUNNING pipelines found (recovery not needed)")
 
     logger.info("Entering main loop with"
                 " poll_interval=%s seconds", poll_interval)

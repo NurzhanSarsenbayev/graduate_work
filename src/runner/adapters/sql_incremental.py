@@ -10,22 +10,10 @@ from src.runner.adapters.transformers import resolve_transformer
 from src.runner.adapters.writers import resolve_writer
 from src.runner.ports.pipeline import PipelineLike
 from src.runner.orchestration.context import ExecutionContext
+from src.runner.services.logctx import ctx_prefix
+from src.runner.services.pause import _pause_if_requested
 
 logger = logging.getLogger("etl_runner")
-
-
-async def _pause_if_requested(
-    ctx: ExecutionContext,
-    pipeline_id: str,
-) -> bool:
-    status = await ctx.pipelines.get_status(ctx.session, pipeline_id)
-    if status == PipelineStatus.PAUSE_REQUESTED.value:
-        await ctx.pipelines.apply_pause_requested(
-            ctx.session, pipeline_id)  # commit inside
-        logger.info("Pause requested:"
-                    " pipeline id=%s -> PAUSED (after batch)", pipeline_id)
-        return True
-    return False
 
 
 async def run_sql_incremental_pipeline(
@@ -56,6 +44,10 @@ async def run_sql_incremental_pipeline(
     pid = str(pipeline.id)
     pname = str(pipeline.name or pid)
 
+    rid = str(ctx.run_id)
+    ctx_str = ctx_prefix(pid=pid, pname=pname, rid=rid)
+    batch_no = 0
+
     total_read = 0
     total_written = 0
 
@@ -75,9 +67,8 @@ async def run_sql_incremental_pipeline(
             raise ValueError("Incremental state is missing last_processed_id")
 
         logger.info(
-            "INC start: pipeline=%s batch_size=%s"
-            " inc_key=%s id_key=%s last_ts=%s last_id=%s",
-            pname, batch_size, inc_key, id_key, last_ts, last_id,
+            "%s INC start batch_size=%s inc_key=%s id_key=%s last_ts=%s last_id=%s",
+            ctx_str, batch_size, inc_key, id_key, last_ts, last_id,
         )
 
         base = str(source_query).strip().rstrip(";")
@@ -105,12 +96,14 @@ async def run_sql_incremental_pipeline(
             res = await session.execute(text(batch_sql), params)
             src_rows = res.mappings().all()
 
-            logger.info("INC batch fetched:"
-                        " pipeline=%s rows=%d", pname, len(src_rows))
-
             if not src_rows:
-                logger.info("INC done: pipeline=%s (no more rows)", pname)
+                logger.info("%s INC done (no more rows) batches=%d",
+                            ctx_str, batch_no)
                 break
+
+            batch_no += 1
+            logger.info("%s INC batch=%d fetched rows=%d",
+                        ctx_str, batch_no, len(src_rows))
 
             total_read += len(src_rows)
 
@@ -132,8 +125,8 @@ async def run_sql_incremental_pipeline(
             last_id = str(tail[id_key])
 
             logger.info(
-                "INC checkpoint update: pipeline=%s -> last_ts=%s last_id=%s",
-                pname, last_ts, last_id,
+                "%s INC checkpoint batch=%d -> last_ts=%s last_id=%s",
+                ctx_str, batch_no, last_ts, last_id,
             )
 
             last_ts_str = last_ts.isoformat()\

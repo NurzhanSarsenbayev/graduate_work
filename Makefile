@@ -7,7 +7,7 @@ BATCH ?= 100
 NAME  ?= film_dim
 MODE ?= full
 KEY  ?= updated_at
-ID_KEY ?= id
+ID_KEY ?= film_id
 INC_ID_KEY ?= film_id
 SLEEP ?= 0.2     # seconds of pg_sleep per row
 DELAY ?= 1       # delay before sending pause request
@@ -125,6 +125,14 @@ api-runs-delta2:
 	AFTER=$$(curl -s "$(PIPES)/$(ID)/runs?limit=500" | jq 'length'); \
 	echo "before=$$BEFORE after=$$AFTER delta=$$((AFTER-BEFORE))"
 
+api-runs-delta2-wait:
+	@test -n "$(ID)" || (echo "Usage: make api-runs-delta2-wait ID=<uuid>" && exit 1)
+	@BEFORE=$$(curl -s "$(PIPES)/$(ID)/runs?limit=500" | jq 'length'); \
+	( curl -s -X POST $(PIPES)/$(ID)/run >/dev/null & curl -s -X POST $(PIPES)/$(ID)/run >/dev/null & wait ); \
+	sleep 6; \
+	AFTER=$$(curl -s "$(PIPES)/$(ID)/runs?limit=500" | jq 'length'); \
+	echo "before=$$BEFORE after=$$AFTER delta=$$((AFTER-BEFORE))"
+
 api-runs:
 	@test -n "$(ID)" || (echo "Usage: make api-runs ID=<uuid>" && exit 1)
 	curl -s "$(PIPES)/$(ID)/runs?limit=50" | $(JSON_FMT)
@@ -176,7 +184,7 @@ api-create-sql-film-dim-inc-slow:
 \"incremental_key\":\"$(KEY)\",\
 \"incremental_id_key\":\"$(ID_KEY)\",\
 \"target_table\":\"analytics.film_dim\",\
-\"source_query\":\"SELECT id AS film_id, title, rating, updated_at FROM content.film_work CROSS JOIN LATERAL (SELECT pg_sleep($(SLEEP))) s\"}" \
+\"source_query\":\"SELECT id, id AS film_id, title, rating, updated_at FROM content.film_work CROSS JOIN LATERAL (SELECT pg_sleep($(SLEEP))) s\"}" \
 	| $(JSON_FMT)
 
 api-create-python-film-dim:
@@ -323,9 +331,9 @@ api-get-brief:
 test-retry-flip-film-dim:
 	@test -n "$(ID)" || (echo "Usage: make test-retry-flip-film-dim ID=<uuid>" && exit 1)
 	@$(MAKE) api-run ID=$(ID) >/dev/null
-	@sleep 0.5
+	@sleep 0.8
 	@$(MAKE) db-hide-film-dim
-	@sleep 2
+	@sleep 2.6
 	@$(MAKE) db-unhide-film-dim
 	@echo "Now watch logs: make logs-runner"
 

@@ -12,7 +12,7 @@ from src.runner.repos.pipelines import PipelinesRepo
 from src.runner.services.db_errors import is_db_disconnect
 from src.runner.services.pipeline_snapshot import (
     PipelineSnapshot, snapshot_pipeline_with_tasks)
-
+from src.runner.orchestration.executor import short_db_error
 
 logger = logging.getLogger("etl_runner")
 
@@ -59,13 +59,23 @@ class PipelineDispatcher:
 
             for attempt in range(1, self._max_attempts + 1):
                 try:
-                    await self._executor.execute(session, snap)
+                    await self._executor.execute(session, snap, attempt=attempt)
 
                     status = await self._pipelines.get_status(session, pid)
-                    if status != PipelineStatus.PAUSED.value:
-                        await self._pipelines.set_status(
-                            session, pid, PipelineStatus.IDLE.value)
 
+                    # If someone already paused it (or requested pause
+                    # and it was applied elsewhere) — don't touch.
+                    if status == PipelineStatus.PAUSED.value:
+                        return
+
+                    # Otherwise finalize ONLY if still RUNNING (conditional!)
+                    ok = await self._pipelines.finish_running_to_idle(session, pid)
+                    if not ok:
+                        logger.info(
+                            "Skip finalization to IDLE for pipeline"
+                            " id=%s: status changed concurrently",
+                            pid,
+                        )
                     return
 
                 except Exception as exc:
@@ -86,7 +96,7 @@ class PipelineDispatcher:
                             "Pipeline id=%s name=%s "
                             "attempt %d/%d FAILED: %r. Retrying in %ss",
                             pid, pname, attempt,
-                            self._max_attempts, exc, delay,
+                            self._max_attempts, short_db_error(exc), delay,
                         )
                         await asyncio.sleep(delay)
                         continue
@@ -94,8 +104,10 @@ class PipelineDispatcher:
                     logger.error(
                         "Pipeline id=%s name=%s"
                         " attempt %d/%d FAILED permanently: %r",
-                        pid, pname, attempt, self._max_attempts, exc,
+                        pid, pname, attempt, self._max_attempts, short_db_error(exc),
                     )
+                    await self._pipelines.fail_if_active(session, pid)
+
                     raise
 
         # 3) If already RUNNING — do not touch it

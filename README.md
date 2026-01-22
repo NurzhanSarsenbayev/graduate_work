@@ -156,15 +156,48 @@ Example:
 
 ## Incremental vs Full Pipelines
 
-- **Full pipelines** process the entire dataset
-- **Incremental pipelines** resume from the last processed checkpoint
+### Full pipelines
 
-Incremental execution is implemented via:
+- Process the entire dataset from scratch.
+- Do not use persistent checkpoints.
+- Progress is tracked only at the batch level.
+- Resume after crash is **best-effort** (batch-level only).
+
+⚠ FULL mode currently uses LIMIT/OFFSET pagination (MVP limitation):
+- Requires a deterministic `ORDER BY` in the source query.
+- May produce duplicates or skips on highly mutable sources.
+- Intended for static or slowly-changing datasets.
+
+---
+
+### Incremental pipelines
+
+Incremental pipelines resume execution from the last successfully committed checkpoint.
+
+They rely on:
 
 - Explicit state tracking
 - Batch-based pagination
 - Persistent checkpoints
 - Idempotent writes
+
+---
+
+### Incremental mode contract
+
+For incremental pipelines, the following conditions must hold:
+
+1. Both `incremental_key` and `incremental_id_key` are required.
+2. Both columns **must be present in the source query output**.
+3. Column names must match the configured keys **after aliasing** (i.e. what comes out of SELECT).
+4. The pair `(incremental_key, incremental_id_key)` must define a **stable, deterministic ordering**.
+5. `incremental_key` is assumed to be monotonic (or approximately monotonic).
+
+Violating these constraints may result in:
+- missed rows,
+- duplicates,
+- non-deterministic ordering,
+- or SQL errors during execution.
 
 ---
 
@@ -174,7 +207,7 @@ This system is designed for **operational safety** and predictable recovery.
 
 ### Processing semantics (actual guarantees)
 
-- **At-least-once processing**: a batch may be re-processed after a crash or transient failure.
+- **At-least-once batch processing**: a batch may be re-processed after a crash or transient failure.
 - **Idempotent sinks**:
   - PostgreSQL writes use **UPSERT** semantics.
   - Elasticsearch writes use **upsert by document id**.
@@ -182,7 +215,8 @@ This system is designed for **operational safety** and predictable recovery.
 - **Batch-level progress**:
   - Each batch is committed independently.
   - Partial progress is expected and is considered a feature (fast recovery), not corruption.
-- **Checkpoint-based resume (incremental mode)**:
+  - Progress is monotonic and checkpointed.
+- **Checkpoint-based resume (incremental mode only)**:
   - The runner persists a checkpoint after a successful batch.
   - After restart, incremental pipelines resume from the last checkpoint.
 
@@ -192,6 +226,23 @@ This system is designed for **operational safety** and predictable recovery.
 - **FULL mode resume from the exact last offset** (FULL uses batch pagination; see limitations).
 - **Delete propagation** from source to targets.
 - **Late-arriving / backdated updates** if `updated_at` is not monotonic (can be addressed with a watermark overlap window).
+- **Strict ordering** guarantees across concurrent writes (ordering is only guaranteed per batch and per source query order).
+
+## Why not exactly-once?
+
+Exactly-once end-to-end semantics require:
+- distributed transactions, or
+- two-phase commit, or
+- external deduplication storage.
+
+These significantly complicate the system and are outside the scope of this MVP.
+
+Instead, this system provides:
+- at-least-once processing
+- idempotent sinks
+- batch-level checkpoints
+
+This combination provides practical reliability with much lower operational complexity.
 
 ### Mechanisms
 
@@ -376,8 +427,9 @@ Step-by-step validation scenarios (full, incremental, tasks mode, pause/resume, 
 - No DAGs / branching / parallel task execution (tasks mode is linear).
 - No scheduling (cron/Airflow integration is out of scope).
 - **FULL mode uses LIMIT/OFFSET pagination** (MVP):
-  - requires deterministic `ORDER BY` in the source query for stable results,
-  - not recommended for highly mutable sources.
+  - requires a deterministic `ORDER BY` in the source query,
+  - may produce duplicates or skips on highly mutable sources,
+  - intended for static or slowly-changing datasets.
 - **Deletes are not propagated** from source to sinks.
 - **Late-arriving/backdated updates** may be missed in incremental mode if `updated_at` is not monotonic.
 - No metrics/exporters yet (only logs).
