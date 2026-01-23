@@ -422,6 +422,21 @@ Step-by-step validation scenarios (full, incremental, tasks mode, pause/resume, 
 
 ---
 
+## Testing
+
+The test suite focuses on control-plane correctness and safety guarantees:
+
+* Pipeline configuration validation
+* Incremental mode contracts
+* Python pipeline safety (allowlisted modules)
+* Invalid configurations are rejected early
+
+Tests are fast, deterministic, and require no external systems.
+
+pytest
+
+---
+
 ## Limitations (Current MVP Scope)
 
 - No DAGs / branching / parallel task execution (tasks mode is linear).
@@ -455,3 +470,7 @@ Platform / Data Backend Engineer
 Python, ETL, Distributed Systems
 
 ```
+
+
+
+
