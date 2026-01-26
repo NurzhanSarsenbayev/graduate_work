@@ -5,7 +5,7 @@
 
 This document defines **deterministic validation scenarios** for the ETL platform.
 
-Unlike `demo.md`, this file focuses on **invariants, edge cases, and failure semantics**, not on presentation.
+Unlike `DEMO.md`, this file focuses on **invariants, edge cases, and failure semantics**, not on presentation.
 
 ---
 

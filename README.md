@@ -268,79 +268,52 @@ Operational notes:
 
 ---
 
-## Quickstart
+## Quickstart (5 minutes)
 
 ### 1. Prepare environment
 
 ```bash
 cp .env.sample .env
-Default values are compatible with the provided docker-compose setup.
 ```
+Default values work with docker-compose.
 
-### 2. Build and start the system
+### 2. Start the system
 ```bash
 make build
 make up
 ```
-This starts:
+Wait until services become healthy.
 
-- PostgreSQL on localhost:15432
+Health checks:
 
-- ETL API on http://localhost:8100
-
-- Elasticsearch on http://localhost:9200
-
-ETL Runner as a separate worker service
-
-Alembic migrations are applied automatically on startup
-
-### 3. Health checks
 ```bash
 curl http://localhost:8100/api/v1/health
-
 curl http://localhost:9200
 ```
-Both endpoints should respond successfully.
 
-### 4. Create a demo pipeline (SQL → PostgreSQL)
+### 3. Create and run a demo pipeline
+Create a demo SQL pipeline (PostgreSQL sink):
+
 ```bash
-make api-create-sql-film-dim \
-  NAME=film_dim \
-  BATCH=100
+make api-create-sql-film-dim NAME=film_dim_demo BATCH=2
 ```
-The command returns a pipeline id.
+Copy the returned pipeline id, then run it:
 
-### 5. Run the pipeline
 ```bash
 make api-run ID=<pipeline_id>
+make db-last-run ID=<pipeline_id>
 ```
 
-The pipeline transitions to RUN_REQUESTED, after which the runner picks it up
-and executes it asynchronously.
-
-### 6. Observe pipeline state and runs
-```bash
-make api-get ID=<pipeline_id>
-
-make api-runs ID=<pipeline_id>
-```
-
-### 7. Verify results in PostgreSQL
-```bash
-docker compose -f infra/docker-compose.yml exec -T etl_db \
-  psql -U etl_user -d etl_demo \
-  -c "SELECT * FROM analytics.film_dim LIMIT 5;"
-```
-### 8. Stop the system
-```bash
-make down
-```
-
-To remove volumes as well:
+Verify results:
 
 ```bash
-make down-v
+make db-counts
 ```
+
+Next steps
+- Quick demo scenarios: see docs/DEMO.md
+- Detailed validation scenarios: see docs/VALIDATION_SCENARIOS.md
+- Architecture overview: see docs/ARCHITECTURE.md
 
 ---
 
@@ -449,16 +422,30 @@ infra/
   docker-compose.yml
 docs/
   ARCHITECTURE.md
-  demo_checks.md
+  API.md
+  DEMO.md
+  TASK_MODEL.md
+  VALIDATION_SCENARIOS.md
 ```
 
 ---
 
-## Demo Scenarios
+## Demo Walkthrough
 
-Step-by-step validation scenarios (full, incremental, tasks mode, pause/resume, Elasticsearch) are documented in:
+A complete hands-on demo covering:
 
-👉 `docs/demo_checks.md`
+- full and incremental pipelines,
+- checkpointing and idempotency,
+- pause / resume semantics,
+- retry with backoff,
+- PostgreSQL and Elasticsearch sinks,
+- tasks-based pipelines (SQL + Python).
+
+The demo is fully automated via the Makefile and takes ~5–7 minutes to complete:
+
+👉 **See [`DEMO.md`](DEMO.md)**
+
+For deeper validation scenarios and edge cases, see `docs/DEMO.md`.
 
 ---
 
