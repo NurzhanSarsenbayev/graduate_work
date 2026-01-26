@@ -1,7 +1,7 @@
 
 # ETL API Reference
 
-This document describes the public REST API of the **Fault-Tolerant ETL Platform**.  
+This document describes the public REST API of the **Fault-Tolerant ETL Platform**.
 The API acts as a **control-plane**: it manages pipeline configuration and lifecycle, but never executes pipelines directly.
 
 ---

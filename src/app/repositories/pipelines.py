@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
+from uuid import uuid4
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from uuid import uuid4
 
-from src.app.models import EtlPipeline, EtlRun
-from src.app.core.exceptions import PipelineNotFoundError
 from src.app.core.enums import PipelineStatus
+from src.app.core.exceptions import PipelineNotFoundError
+from src.app.models import EtlPipeline, EtlRun
 
 
 class SQLPipelinesRepository:
@@ -20,17 +20,12 @@ class SQLPipelinesRepository:
     - consistent contract (returns an object or raises an error).
     """
 
-    async def list_pipelines(
-            self,
-            session: AsyncSession) -> Sequence[EtlPipeline]:
+    async def list_pipelines(self, session: AsyncSession) -> Sequence[EtlPipeline]:
         stmt = select(EtlPipeline).order_by(EtlPipeline.name)
         result = await session.execute(stmt)
         return result.scalars().all()
 
-    async def get_pipeline(
-            self,
-            session: AsyncSession,
-            pipeline_id: str) -> EtlPipeline:
+    async def get_pipeline(self, session: AsyncSession, pipeline_id: str) -> EtlPipeline:
         stmt = select(EtlPipeline).where(EtlPipeline.id == pipeline_id)
         result = await session.execute(stmt)
         pipeline = result.scalar_one_or_none()
@@ -40,10 +35,7 @@ class SQLPipelinesRepository:
 
         return pipeline
 
-    async def create_pipeline(
-            self,
-            session: AsyncSession,
-            payload) -> EtlPipeline:
+    async def create_pipeline(self, session: AsyncSession, payload) -> EtlPipeline:
         """Create a new ETL pipeline.
 
         This method does not perform business validation
@@ -104,7 +96,6 @@ class SQLPipelinesRepository:
         pipeline_id: str,
         limit: int = 50,
     ) -> Sequence[EtlRun]:
-
         # We intentionally do not validate pipeline existence here —
         # the service layer owns that decision (separation of concerns).
 
@@ -117,10 +108,7 @@ class SQLPipelinesRepository:
         result = await session.execute(stmt)
         return result.scalars().all()
 
-    async def request_run(
-            self,
-            session: AsyncSession,
-            pipeline_id: str) -> EtlPipeline | None:
+    async def request_run(self, session: AsyncSession, pipeline_id: str) -> EtlPipeline | None:
         """Atomically move a pipeline to RUN_REQUESTED if allowed.
 
         Returns the updated pipeline, or None if the transition was not applied.
@@ -152,10 +140,7 @@ class SQLPipelinesRepository:
         await session.refresh(updated)
         return updated
 
-    async def request_pause(
-            self,
-            session: AsyncSession,
-            pipeline_id: str) -> EtlPipeline | None:
+    async def request_pause(self, session: AsyncSession, pipeline_id: str) -> EtlPipeline | None:
         """Atomically move a pipeline to PAUSE_REQUESTED if allowed.
 
         Returns the updated pipeline, or None if the transition was not applied.
@@ -185,10 +170,7 @@ class SQLPipelinesRepository:
         await session.refresh(updated)
         return updated
 
-    async def claim_run_requested(
-            self,
-            session: AsyncSession,
-            pipeline_id: str) -> bool:
+    async def claim_run_requested(self, session: AsyncSession, pipeline_id: str) -> bool:
         """Runner claim step: RUN_REQUESTED -> RUNNING.
 
         Returns True if we claimed the pipeline.

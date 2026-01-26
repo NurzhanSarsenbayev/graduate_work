@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from .enums import PipelineStatus, RunStatus
 from .constants import ALLOWED_TARGET_TABLES
+from .enums import PipelineStatus, RunStatus
 
 __all__ = [
     "PipelineStatus",

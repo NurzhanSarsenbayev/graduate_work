@@ -170,7 +170,7 @@ api-create-sql-film-dim-slow:
 api-create-sql-film-dim-inc:
 	curl -s -X POST $(PIPES)/ \
 	  -H "Content-Type: application/json" \
-	  -d "{\"name\":\"$(NAME)_inc\",\"description\":\"Incremental SQL pipeline\",\"type\":\"SQL\",\"mode\":\"incremental\",\"enabled\":true,\"batch_size\":$(BATCH),\"incremental_key\":\"updated_at\",\"incremental_id_key\":\"id\",\"target_table\":\"analytics.film_dim\",\"source_query\":\"SELECT id AS film_id, title, rating, updated_at FROM content.film_work\"}" | $(JSON_FMT)
+	  -d "{\"name\":\"$(NAME)_inc\",\"description\":\"Incremental SQL pipeline\",\"type\":\"SQL\",\"mode\":\"incremental\",\"enabled\":true,\"batch_size\":$(BATCH),\"incremental_key\":\"updated_at\",\"incremental_id_key\":\"id\",\"target_table\":\"analytics.film_dim\",\"source_query\":\"SELECT id, id AS film_id, title, rating, updated_at FROM content.film_work\"}" | $(JSON_FMT)
 
 api-create-sql-film-dim-inc-slow:
 	curl -s -X POST $(PIPES)/ \

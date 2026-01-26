@@ -1,4 +1,4 @@
-1) make up 
+1) make up
 2) make ps
 3) make api-list
 4) make db-counts

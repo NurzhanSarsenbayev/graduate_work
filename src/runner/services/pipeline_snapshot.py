@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.app.models import EtlPipeline
-from src.app.models import EtlPipelineTask
+from src.app.models import EtlPipeline, EtlPipelineTask
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,13 +23,14 @@ class PipelineSnapshot:
     name: str
     type: str
     mode: str
+    enabled: bool
     batch_size: int
-    source_query: Optional[str]
-    python_module: Optional[str]
+    source_query: str | None
+    python_module: str | None
     target_table: str
-    incremental_key: Optional[str]
-    incremental_id_key: Optional[str]
-    description: Optional[str] = None  # legacy fallback in transformer
+    incremental_key: str | None
+    incremental_id_key: str | None
+    description: str | None = None  # legacy fallback in transformer
     tasks: tuple[TaskSnapshot, ...] = ()
 
 
@@ -41,6 +40,7 @@ def snapshot_pipeline(p: EtlPipeline) -> PipelineSnapshot:
         name=p.name,
         type=p.type,
         mode=p.mode,
+        enabled=bool(p.enabled),
         batch_size=int(p.batch_size or 1000),
         source_query=p.source_query,
         python_module=p.python_module,
@@ -51,9 +51,7 @@ def snapshot_pipeline(p: EtlPipeline) -> PipelineSnapshot:
     )
 
 
-async def snapshot_pipeline_with_tasks(
-        session: AsyncSession,
-        p: EtlPipeline) -> PipelineSnapshot:
+async def snapshot_pipeline_with_tasks(session: AsyncSession, p: EtlPipeline) -> PipelineSnapshot:
     stmt = (
         select(EtlPipelineTask)
         .where(EtlPipelineTask.pipeline_id == p.id)

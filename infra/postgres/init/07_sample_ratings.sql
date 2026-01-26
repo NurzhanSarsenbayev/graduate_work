@@ -21,4 +21,3 @@ VALUES
   -- Rogue One
   ('55555555-5555-5555-5555-555555555551', 'ea7138b8-157f-4e5d-b53d-8b64c63d17cd', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 9, NOW()),
   ('55555555-5555-5555-5555-555555555552', 'ea7138b8-157f-4e5d-b53d-8b64c63d17cd', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 8, NOW());
-

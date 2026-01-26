@@ -6,13 +6,12 @@ from typing import NoReturn
 
 from sqlalchemy import text
 
+from infra.db import async_session_factory, engine
+from src.runner.orchestration.manager import PipelineManager
 from src.runner.repos.pipelines import PipelinesRepo
 from src.runner.repos.runs import RunsRepo
-
-from infra.db import async_session_factory, engine
-
 from src.runner.services.db_errors import is_db_disconnect
-from src.runner.orchestration.manager import PipelineManager
+
 logger = logging.getLogger("etl_runner")
 
 
@@ -25,12 +24,12 @@ def setup_logging() -> None:
 
 async def _check_db_connection() -> None:
     """
-      Quick DB ping.
+    Quick DB ping.
 
-      Important: we create/close the session inside this function
-      to avoid keeping a "broken" session around.
+    Important: we create/close the session inside this function
+    to avoid keeping a "broken" session around.
     """
-    async with async_session_factory() as session:  # type: AsyncSession
+    async with async_session_factory() as session:
         result = await session.execute(text("SELECT 1"))
         _ = result.scalar_one()
 
@@ -53,8 +52,7 @@ async def wait_for_db(
         except Exception as exc:
             last_exc = exc
             delay = delays[i - 1] if i - 1 < len(delays) else delays[-1]
-            logger.warning("DB not ready (%d/%d)."
-                           " Retrying in %ss...", i, attempts, delay)
+            logger.warning("DB not ready (%d/%d)." " Retrying in %ss...", i, attempts, delay)
             await asyncio.sleep(delay)
 
     logger.exception("DB did not become ready after %d attempts", attempts)
@@ -71,7 +69,7 @@ async def main_loop(poll_interval: float = 5.0) -> NoReturn:
     pipelines_repo = PipelinesRepo()
     runs_repo = RunsRepo()
 
-    async with async_session_factory() as session:  # type: AsyncSession
+    async with async_session_factory() as session:
         pipeline_ids = await pipelines_repo.list_stuck_running_ids(session)
         if pipeline_ids:
             # mark previous RUNNING runs as FAILED (honest history)
@@ -83,15 +81,15 @@ async def main_loop(poll_interval: float = 5.0) -> NoReturn:
             await session.commit()
 
             logger.warning(
-                "Recovered %d stuck RUNNING pipeline(s): runs->FAILED, pipelines->RUN_REQUESTED (updated=%d)",
+                "Recovered %d stuck RUNNING pipeline(s):"
+                " runs->FAILED, pipelines->RUN_REQUESTED (updated=%d)",
                 len(pipeline_ids),
                 updated,
             )
         else:
             logger.info("No stuck RUNNING pipelines found (recovery not needed)")
 
-    logger.info("Entering main loop with"
-                " poll_interval=%s seconds", poll_interval)
+    logger.info("Entering main loop with" " poll_interval=%s seconds", poll_interval)
 
     manager = PipelineManager(async_session_factory)
 
@@ -101,13 +99,13 @@ async def main_loop(poll_interval: float = 5.0) -> NoReturn:
             await manager.tick()
         except Exception as exc:
             if is_db_disconnect(exc):
-                logger.warning("DB disconnected during tick."
-                               " Will retry next tick. err=%r", exc)
+                logger.warning("DB disconnected during tick." " Will retry next tick. err=%r", exc)
 
                 await asyncio.sleep(1.0)
             else:
                 logger.exception("Error during runner tick")
         await asyncio.sleep(poll_interval)
+
 
 async def main() -> None:
     setup_logging()
@@ -117,6 +115,7 @@ async def main() -> None:
         # important: always dispose the connection pool
         logger.info("Disposing DB engine...")
         await engine.dispose()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

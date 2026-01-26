@@ -5,11 +5,9 @@ from dataclasses import dataclass
 
 from src.runner.orchestration.dispatcher import PipelineDispatcher
 from src.runner.orchestration.executor import PipelineExecutor
-
 from src.runner.repos.pipelines import PipelinesRepo
 from src.runner.repos.runs import RunsRepo
 from src.runner.repos.state import StateRepo
-
 from src.runner.services.db_errors import is_db_disconnect
 
 logger = logging.getLogger("etl_runner")
@@ -36,9 +34,9 @@ class PipelineManager:
         self._state = StateRepo()
 
         # executor + dispatcher
-        self._executor = PipelineExecutor(runs=self._runs,
-                                          pipelines=self._pipelines,
-                                          state=self._state)
+        self._executor = PipelineExecutor(
+            runs=self._runs, pipelines=self._pipelines, state=self._state
+        )
         self._dispatcher = PipelineDispatcher(
             executor=self._executor,
             pipelines=self._pipelines,
@@ -46,12 +44,11 @@ class PipelineManager:
 
     async def tick(self) -> TickResult:
         # 1) Fetch candidate pipelines using a single session
-        async with self._session_factory() as session:  # type: AsyncSession
+        async with self._session_factory() as session:
             pipelines = await self._pipelines.get_active(session)
 
         if not pipelines:
-            logger.info("No active pipelines "
-                        "(enabled & RUN_REQUESTED/PAUSE_REQUESTED) found")
+            logger.info("No active pipelines " "(enabled & RUN_REQUESTED/PAUSE_REQUESTED) found")
             return TickResult(pipelines_found=0, pipelines_processed=0)
 
         logger.info("Found %d active pipeline(s)", len(pipelines))
@@ -73,5 +70,4 @@ class PipelineManager:
                         getattr(pipeline, "name", "?"),
                     )
 
-        return TickResult(pipelines_found=len(pipelines),
-                          pipelines_processed=processed)
+        return TickResult(pipelines_found=len(pipelines), pipelines_processed=processed)

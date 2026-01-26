@@ -4,18 +4,17 @@ import asyncio
 from logging.config import fileConfig
 from typing import Any
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from src.config import get_settings
+from alembic import context
 from src.app.models.base import Base
-
 from src.app.models.etl_pipeline import EtlPipeline  # noqa: F401
 from src.app.models.etl_pipeline_task import EtlPipelineTask  # noqa: F401
 from src.app.models.etl_run import EtlRun  # noqa: F401
 from src.app.models.etl_state import EtlState  # noqa: F401
+from src.config import get_settings
 
 config = context.config
 if config.config_file_name is not None:
@@ -27,7 +26,6 @@ SETTINGS = get_settings()
 
 
 def include_object(object_: Any, name: str, type_: str, reflected: bool, compare_to: Any) -> bool:
-
     if type_ == "table":
         schema = getattr(object_, "schema", None)
         return schema == "etl"
@@ -82,4 +80,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     asyncio.run(run_migrations_online())
-

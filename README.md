@@ -82,19 +82,19 @@ Postgres (analytics)   Elasticsearch
 
 ### Components
 
-- **ETL API (Control-plane)**  
+- **ETL API (Control-plane)**
   Responsible for pipeline management, state transitions, and orchestration.
 
-- **ETL Runner (Data-plane)**  
+- **ETL Runner (Data-plane)**
   A worker process that executes pipelines, handles retries, batching, and recovery.
 
-- **PostgreSQL**  
+- **PostgreSQL**
   Used as:
   - Source
   - Analytics storage
   - Metadata and state storage
 
-- **Elasticsearch**  
+- **Elasticsearch**
   Used as a search/indexing sink.
 
 See `docs/ARCHITECTURE.md` for a more detailed description.
@@ -258,8 +258,8 @@ This combination provides practical reliability with much lower operational comp
 
 Pipelines can be paused and resumed via the API.
 
-> Important:  
-> Pausing only happens **between batches**.  
+> Important:
+> Pausing only happens **between batches**.
 > A currently running batch is always completed safely.
 
 Operational notes:
@@ -470,7 +470,3 @@ Platform / Data Backend Engineer
 Python, ETL, Distributed Systems
 
 ```
-
-
-
-

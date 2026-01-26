@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from sqlalchemy import CheckConstraint, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -9,10 +9,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from src.app.core.enums import RunStatus
+
 from .base import Base
+
 if TYPE_CHECKING:
     from src.app.models.etl_pipeline import EtlPipeline
-
 
 
 class EtlRun(Base):
@@ -43,7 +44,7 @@ class EtlRun(Base):
         nullable=False,
         server_default=func.now(),
     )
-    finished_at: Mapped[Optional[datetime]] = mapped_column(
+    finished_at: Mapped[datetime | None] = mapped_column(
         nullable=True,
     )
 
@@ -65,9 +66,9 @@ class EtlRun(Base):
         default=RunStatus.RUNNING.value,
     )
 
-    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    pipeline: Mapped["EtlPipeline"] = relationship(
+    pipeline: Mapped[EtlPipeline] = relationship(
         "EtlPipeline",
         back_populates="runs",
     )

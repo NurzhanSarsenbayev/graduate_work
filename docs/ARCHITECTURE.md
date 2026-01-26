@@ -26,19 +26,19 @@ Key design principles:
 
 The system is designed to solve common reliability problems in real-world ETL systems:
 
-1. **Resumability**  
+1. **Resumability**
    Pipelines must be able to resume from the last consistent checkpoint.
 
-2. **Idempotency**  
+2. **Idempotency**
    Re-running a pipeline should not corrupt or duplicate data.
 
-3. **Operational Safety**  
+3. **Operational Safety**
    Partial writes, inconsistent state, and undefined transitions are not allowed.
 
-4. **Observability & Control**  
+4. **Observability & Control**
    Pipelines must be externally controllable (run / pause / resume).
 
-5. **Extensibility**  
+5. **Extensibility**
    New sinks, execution modes, and orchestration strategies should be pluggable.
 
 ---
@@ -147,7 +147,7 @@ Example:
 - No DAGs, no branching, no parallelism
 - Each pipeline is a single execution unit
 
-This is not a workflow engine.  
+This is not a workflow engine.
 It is a controlled, extensible execution plan.
 
 ---
@@ -164,7 +164,7 @@ It is a controlled, extensible execution plan.
 - Persist progress in `etl_state`
 - Commit state after every batch
 
-Checkpointing is based on the **SQL reader output**, not on post-transform data.  
+Checkpointing is based on the **SQL reader output**, not on post-transform data.
 This guarantees deterministic replays.
 
 ---

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
@@ -15,9 +15,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from .base import Base
+
 if TYPE_CHECKING:
     from src.app.models.etl_pipeline import EtlPipeline
-
 
 
 class EtlPipelineTask(Base):
@@ -58,8 +58,8 @@ class EtlPipelineTask(Base):
     # For SQL: raw SQL text; for PYTHON: dotted path / registered task name
     body: Mapped[str] = mapped_column(Text, nullable=False)
 
-    source_table: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    target_table: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_table: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_table: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         nullable=False,
@@ -71,7 +71,7 @@ class EtlPipelineTask(Base):
         onupdate=func.now(),
     )
 
-    pipeline: Mapped["EtlPipeline"] = relationship(
+    pipeline: Mapped[EtlPipeline] = relationship(
         "EtlPipeline",
         back_populates="tasks",
     )
