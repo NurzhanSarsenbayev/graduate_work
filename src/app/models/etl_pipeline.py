@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional, List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -14,11 +14,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from src.app.core.enums import PipelineStatus
+
 from .base import Base
+
 if TYPE_CHECKING:
+    from src.app.models.etl_pipeline_task import EtlPipelineTask
     from src.app.models.etl_run import EtlRun
     from src.app.models.etl_state import EtlState
-    from src.app.models.etl_pipeline_task import EtlPipelineTask
 
 
 class EtlPipeline(Base):
@@ -48,7 +50,7 @@ class EtlPipeline(Base):
         server_default=func.gen_random_uuid(),
     )
     name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Pipeline type: "SQL" / "PYTHON"
     type: Mapped[str] = mapped_column(
@@ -58,10 +60,10 @@ class EtlPipeline(Base):
     )
 
     # Base SQL source for SQL pipelines (may be NULL for PYTHON)
-    source_query: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_query: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # For PYTHON pipelines: dotted import path to a module with transform()
-    python_module: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    python_module: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     target_table: Mapped[str] = mapped_column(Text, nullable=False)
 
@@ -72,11 +74,9 @@ class EtlPipeline(Base):
         default="full",
     )
 
-    incremental_key: Mapped[Optional[str]] = (
-        mapped_column(Text, nullable=True))
+    incremental_key: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    incremental_id_key: Mapped[Optional[str]] = (
-        mapped_column(Text, nullable=True))
+    incremental_id_key: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     batch_size: Mapped[int] = mapped_column(
         Integer,
@@ -106,18 +106,18 @@ class EtlPipeline(Base):
     )
 
     # Relations
-    tasks: Mapped[List["EtlPipelineTask"]] = relationship(
+    tasks: Mapped[list[EtlPipelineTask]] = relationship(
         "EtlPipelineTask",
         back_populates="pipeline",
         cascade="all, delete-orphan",
     )
-    state: Mapped[Optional["EtlState"]] = relationship(
+    state: Mapped[EtlState | None] = relationship(
         "EtlState",
         back_populates="pipeline",
         uselist=False,
         cascade="all, delete-orphan",
     )
-    runs: Mapped[List["EtlRun"]] = relationship(
+    runs: Mapped[list[EtlRun]] = relationship(
         "EtlRun",
         back_populates="pipeline",
         cascade="all, delete-orphan",

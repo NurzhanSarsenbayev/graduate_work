@@ -8,16 +8,11 @@ from src.runner.ports.pipeline import PipelineLike
 
 
 class Transformer(Protocol):
-    async def transform(
-            self,
-            pipeline: PipelineLike,
-            rows: list[dict]) -> list[dict]: ...
+    async def transform(self, pipeline: PipelineLike, rows: list[dict]) -> list[dict]: ...
 
 
 class NoOpTransformer:
-    async def transform(self,
-                        pipeline: PipelineLike,
-                        rows: list[dict]) -> list[dict]:
+    async def transform(self, pipeline: PipelineLike, rows: list[dict]) -> list[dict]:
         return rows
 
 
@@ -26,28 +21,21 @@ class PythonCallableTransformer:
     dotted_path: str
     fn_name: str = "transform"
 
-    async def transform(
-            self,
-            pipeline: PipelineLike,
-            rows: list[dict]) -> list[dict]:
+    async def transform(self, pipeline: PipelineLike, rows: list[dict]) -> list[dict]:
         module = importlib.import_module(self.dotted_path)
         fn = getattr(module, self.fn_name, None)
         if fn is None:
             raise ValueError(
-                f"Python transformer not found:"
-                f" {self.dotted_path}.{self.fn_name}()"
+                f"Python transformer not found:" f" {self.dotted_path}.{self.fn_name}()"
             )
 
         result = fn(rows, pipeline=pipeline)
         # Allow a sync function, but if it returns an awaitable — await it.
         if hasattr(result, "__await__"):
-            result = await result  # type: ignore[misc]
+            result = await result
 
         if not isinstance(result, list):
-            raise ValueError(
-                f"Python transformer must return list[dict],"
-                f" got {type(result)}"
-            )
+            raise ValueError(f"Python transformer must return list[dict]," f" got {type(result)}")
         return result
 
 

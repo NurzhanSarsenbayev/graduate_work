@@ -14,11 +14,7 @@ logger = logging.getLogger("etl_runner")
 
 
 class RunsRepo:
-    async def start_run(
-            self,
-            session: AsyncSession,
-            *,
-            pipeline_id: str) -> str:
+    async def start_run(self, session: AsyncSession, *, pipeline_id: str) -> str:
         run_id = str(uuid4())
         stmt = insert(EtlRun).values(
             id=run_id,
@@ -30,9 +26,7 @@ class RunsRepo:
         )
         await session.execute(stmt)
         await session.commit()
-        logger.info("Started ETL run id=%s pipeline_id=%s",
-                    run_id,
-                    pipeline_id)
+        logger.info("Started ETL run id=%s pipeline_id=%s", run_id, pipeline_id)
         return run_id
 
     async def finish_success(
@@ -55,8 +49,9 @@ class RunsRepo:
         )
         await session.execute(stmt)
         await session.commit()
-        logger.info("Finished ETL run id=%s SUCCESS (read=%d written=%d)",
-                    run_id, rows_read, rows_written)
+        logger.info(
+            "Finished ETL run id=%s SUCCESS (read=%d written=%d)", run_id, rows_read, rows_written
+        )
 
     async def finish_failed(
         self,
@@ -79,9 +74,8 @@ class RunsRepo:
         logger.error("ETL run id=%s FAILED: %s", run_id, error_message[:300])
 
     async def recover_running_failed_bulk(
-            self,
-            session: AsyncSession,
-            pipeline_ids: list[str]) -> int:
+        self, session: AsyncSession, pipeline_ids: list[str]
+    ) -> int:
         if not pipeline_ids:
             return 0
         await session.execute(

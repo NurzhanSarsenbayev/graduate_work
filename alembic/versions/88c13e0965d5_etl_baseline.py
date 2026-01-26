@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "88c13e0965d5"
-down_revision: Union[str, Sequence[str], None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -39,8 +39,18 @@ def upgrade() -> None:
         sa.Column("batch_size", sa.Integer(), nullable=False, server_default=sa.text("1000")),
         sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("status", sa.Text(), nullable=False, server_default=sa.text("'IDLE'")),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column(
+            "created_at",
+            sa.TIMESTAMP(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.TIMESTAMP(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
         sa.CheckConstraint("type IN ('SQL', 'PYTHON', 'ES')", name="etl_pipelines_type_check"),
         sa.CheckConstraint("mode IN ('full', 'incremental')", name="etl_pipelines_mode_check"),
         sa.CheckConstraint(
@@ -70,8 +80,18 @@ def upgrade() -> None:
         sa.Column("body", sa.Text(), nullable=False),
         sa.Column("source_table", sa.Text(), nullable=True),
         sa.Column("target_table", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column(
+            "created_at",
+            sa.TIMESTAMP(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.TIMESTAMP(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
         sa.UniqueConstraint("pipeline_id", "order_index", name="etl_pipeline_tasks_order_uq"),
         sa.CheckConstraint("task_type IN ('SQL', 'PYTHON')", name="etl_pipeline_tasks_type_check"),
         schema="etl",
@@ -88,7 +108,12 @@ def upgrade() -> None:
         ),
         sa.Column("last_processed_id", sa.Text(), nullable=True),
         sa.Column("last_processed_value", sa.Text(), nullable=True),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column(
+            "updated_at",
+            sa.TIMESTAMP(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
         schema="etl",
     )
 
@@ -107,13 +132,20 @@ def upgrade() -> None:
             sa.ForeignKey("etl.etl_pipelines.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column("started_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column(
+            "started_at",
+            sa.TIMESTAMP(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
         sa.Column("finished_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("rows_read", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("rows_written", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("status", sa.Text(), nullable=False, server_default=sa.text("'RUNNING'")),
         sa.Column("error_message", sa.Text(), nullable=True),
-        sa.CheckConstraint("status IN ('RUNNING', 'SUCCESS', 'FAILED')", name="etl_runs_status_check"),
+        sa.CheckConstraint(
+            "status IN ('RUNNING', 'SUCCESS', 'FAILED')", name="etl_runs_status_check"
+        ),
         schema="etl",
     )
 

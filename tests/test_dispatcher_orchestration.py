@@ -27,9 +27,12 @@ async def test_run_requested_success_finalizes_to_idle(monkeypatch):
     )
     pipelines.claim_run_requested.return_value = claimed
 
-    snap = DummyPipeline(id="pid-1", name="p1", tasks=(), mode="full", status=PipelineStatus.RUNNING.value)
+    snap = DummyPipeline(
+        id="pid-1", name="p1", tasks=(), mode="full", status=PipelineStatus.RUNNING.value
+    )
 
     import src.runner.orchestration.dispatcher as disp_mod
+
     monkeypatch.setattr(disp_mod, "snapshot_pipeline_with_tasks", AsyncMock(return_value=snap))
 
     executor.execute.return_value = SimpleNamespace(rows_read=1, rows_written=1)
@@ -37,7 +40,9 @@ async def test_run_requested_success_finalizes_to_idle(monkeypatch):
     pipelines.get_status.return_value = PipelineStatus.RUNNING.value
     pipelines.finish_running_to_idle.return_value = True
 
-    d = PipelineDispatcher(executor=executor, pipelines=pipelines, max_attempts=3, backoff_seconds=(0, 0, 0))
+    d = PipelineDispatcher(
+        executor=executor, pipelines=pipelines, max_attempts=3, backoff_seconds=(0, 0, 0)
+    )
     await d.dispatch(session, claimed)
 
     executor.execute.assert_awaited_once()
@@ -55,13 +60,16 @@ async def test_run_requested_if_paused_do_not_finalize(monkeypatch):
 
     snap = DummyPipeline(id="pid-1", name="p1", tasks=(), mode="full")
     import src.runner.orchestration.dispatcher as disp_mod
+
     monkeypatch.setattr(disp_mod, "snapshot_pipeline_with_tasks", AsyncMock(return_value=snap))
 
     executor.execute.return_value = SimpleNamespace(rows_read=1, rows_written=1)
 
     pipelines.get_status.return_value = PipelineStatus.PAUSED.value
 
-    d = PipelineDispatcher(executor=executor, pipelines=pipelines, max_attempts=3, backoff_seconds=(0, 0, 0))
+    d = PipelineDispatcher(
+        executor=executor, pipelines=pipelines, max_attempts=3, backoff_seconds=(0, 0, 0)
+    )
     await d.dispatch(session, claimed)
 
     pipelines.finish_running_to_idle.assert_not_awaited()
@@ -78,6 +86,7 @@ async def test_retry_on_non_disconnect_error(monkeypatch):
 
     snap = DummyPipeline(id="pid-1", name="p1", tasks=(), mode="full")
     import src.runner.orchestration.dispatcher as disp_mod
+
     monkeypatch.setattr(disp_mod, "snapshot_pipeline_with_tasks", AsyncMock(return_value=snap))
 
     monkeypatch.setattr(disp_mod, "is_db_disconnect", lambda exc: False)
@@ -85,16 +94,23 @@ async def test_retry_on_non_disconnect_error(monkeypatch):
     class Boom(Exception):
         pass
 
-    executor.execute.side_effect = [Boom("1"), Boom("2"), SimpleNamespace(rows_read=1, rows_written=1)]
+    executor.execute.side_effect = [
+        Boom("1"),
+        Boom("2"),
+        SimpleNamespace(rows_read=1, rows_written=1),
+    ]
 
     pipelines.get_status.return_value = PipelineStatus.RUNNING.value
     pipelines.finish_running_to_idle.return_value = True
 
     async def fake_sleep(_):
         return None
+
     monkeypatch.setattr(asyncio, "sleep", fake_sleep)
 
-    d = PipelineDispatcher(executor=executor, pipelines=pipelines, max_attempts=3, backoff_seconds=(0.01, 0.02, 0.04))
+    d = PipelineDispatcher(
+        executor=executor, pipelines=pipelines, max_attempts=3, backoff_seconds=(0.01, 0.02, 0.04)
+    )
     await d.dispatch(session, claimed)
 
     assert executor.execute.await_count == 3
@@ -112,6 +128,7 @@ async def test_db_disconnect_exits_without_failing_pipeline(monkeypatch):
 
     snap = DummyPipeline(id="pid-1", name="p1", tasks=(), mode="full")
     import src.runner.orchestration.dispatcher as disp_mod
+
     monkeypatch.setattr(disp_mod, "snapshot_pipeline_with_tasks", AsyncMock(return_value=snap))
 
     class DbDown(Exception):

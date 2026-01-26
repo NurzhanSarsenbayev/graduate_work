@@ -16,11 +16,11 @@ async def get_pipeline_or_404(
     """Get a pipeline or raise HTTP 404."""
     try:
         pipeline = await service.get_pipeline(str(pipeline_id))
-    except PipelineNotFoundError:
+    except PipelineNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Pipeline not found",
-        )
+        ) from exc
 
     return PipelineOut.model_validate(pipeline)
 

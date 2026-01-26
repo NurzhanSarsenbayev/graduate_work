@@ -24,4 +24,3 @@ CREATE INDEX IF NOT EXISTS ix_film_dim_rating
 
 CREATE INDEX IF NOT EXISTS ix_film_rating_agg_rating_count
     ON film_rating_agg (rating_count DESC);
-

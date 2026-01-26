@@ -28,6 +28,7 @@ class Writer(Protocol):
 # Postgres
 # ----------------------------
 
+
 class PostgresWriter:
     async def write(
         self,
@@ -56,8 +57,7 @@ class PostgresWriter:
                 """
             )
             payload = [
-                {"film_id": r["film_id"],
-                 "title": r["title"], "rating": r.get("rating")}
+                {"film_id": r["film_id"], "title": r["title"], "rating": r.get("rating")}
                 for r in rows
             ]
             await session.execute(insert_sql, payload)
@@ -87,13 +87,13 @@ class PostgresWriter:
             await session.execute(insert_sql, payload)
             return len(payload)
 
-        raise ValueError(f"Unsupported target_table"
-                         f" for PostgresWriter: {target}")
+        raise ValueError(f"Unsupported target_table" f" for PostgresWriter: {target}")
 
 
 # ----------------------------
 # Elasticsearch
 # ----------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class ESConfig:
@@ -144,8 +144,7 @@ class ElasticsearchWriter:
             )
         idx = target_table.removeprefix(ES_TARGET_PREFIX).strip()
         if not idx:
-            raise ValueError("ES index is empty."
-                             " Use target_table like 'es:film_dim'")
+            raise ValueError("ES index is empty." " Use target_table like 'es:film_dim'")
         return idx
 
     def _id_field_for_index(self, index: str) -> str:
@@ -159,8 +158,7 @@ class ElasticsearchWriter:
                 "mappings": {
                     "properties": {
                         "film_id": {"type": "keyword"},
-                        "title": {"type": "text",
-                                  "fields": {"raw": {"type": "keyword"}}},
+                        "title": {"type": "text", "fields": {"raw": {"type": "keyword"}}},
                         "rating": {"type": "float"},
                     }
                 }
@@ -180,20 +178,13 @@ class ElasticsearchWriter:
         # Fallback: dynamic mapping
         return {"mappings": {"dynamic": True}}
 
-    async def _ensure_index(
-            self,
-            client: AsyncElasticsearch,
-            index: str) -> None:
+    async def _ensure_index(self, client: AsyncElasticsearch, index: str) -> None:
         if await client.indices.exists(index=index):
             return
         body = self._mappings_for_index(index)
         await client.indices.create(index=index, **body)
 
-    async def write(
-            self,
-            session: AsyncSession,
-            pipeline: PipelineLike,
-            rows: list[dict]) -> int:
+    async def write(self, session: AsyncSession, pipeline: PipelineLike, rows: list[dict]) -> int:
         if not rows:
             return 0
 
@@ -224,8 +215,8 @@ class ElasticsearchWriter:
 
                 if id_field not in r:
                     raise ValueError(
-                         f"ES writer expects field {id_field!r} in row. "
-                         f"Row keys={list(r.keys())}"
+                        f"ES writer expects field {id_field!r} in row. "
+                        f"Row keys={list(r.keys())}"
                     )
 
                 _id = str(r[id_field])
@@ -239,13 +230,11 @@ class ElasticsearchWriter:
                 items = resp.get("items") or []
                 first_err = None
                 for it in items:
-                    v = (it.get("update") or it.get("index")
-                         or it.get("create") or it.get("delete"))
+                    v = it.get("update") or it.get("index") or it.get("create") or it.get("delete")
                     if v and v.get("error"):
                         first_err = v
                         break
-                raise RuntimeError(f"Elasticsearch bulk errors=True."
-                                   f" first_error={first_err!r}")
+                raise RuntimeError(f"Elasticsearch bulk errors=True." f" first_error={first_err!r}")
 
             return len(rows)
         finally:
@@ -255,6 +244,7 @@ class ElasticsearchWriter:
 # ----------------------------
 # Resolver
 # ----------------------------
+
 
 def resolve_writer(pipeline: PipelineLike) -> Writer:
     target = (pipeline.target_table or "").strip()

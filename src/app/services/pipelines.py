@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +28,7 @@ def _validate_pipeline_config(final: dict) -> None:
     if ptype == "PYTHON":
         if not final.get("python_module"):
             raise ValueError("PYTHON pipelines require python_module")
+
 
 class PipelinesService:
     """Service layer for managing ETL pipelines."""
@@ -61,9 +62,7 @@ class PipelinesService:
         The repository is responsible only for persistence.
         """
         if not is_allowed_target(payload.target_table):
-            raise ValueError(
-                f"target_table '{payload.target_table}' is not allowed"
-            )
+            raise ValueError(f"target_table '{payload.target_table}' is not allowed")
 
         try:
             return await self.repo.create_pipeline(self.session, payload)
@@ -114,7 +113,6 @@ class PipelinesService:
             return updated
 
         return await self.get_pipeline(pipeline_id)
-
 
     async def update_pipeline(
         self,

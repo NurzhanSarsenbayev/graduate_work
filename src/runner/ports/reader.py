@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Mapping, Protocol, Sequence, Any
-
+from collections.abc import Mapping, Sequence
+from typing import Any, Protocol
 
 Row = Mapping[str, Any]
 

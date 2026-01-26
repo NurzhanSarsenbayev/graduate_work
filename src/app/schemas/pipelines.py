@@ -161,6 +161,7 @@ class PipelineUpdate(BaseModel):
 #   Response models
 # ======================
 
+
 class PipelineOut(PipelineBase):
     """Simplified pipeline representation returned by the API."""
 

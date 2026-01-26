@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 
-from src.app.dependencies import get_pipelines_service
 from src.app.api.helpers.pipelines import (
     get_pipeline_or_404,
     http_400,
@@ -17,6 +15,7 @@ from src.app.core.exceptions import (
     PipelineNameAlreadyExistsError,
     PipelineNotFoundError,
 )
+from src.app.dependencies import get_pipelines_service
 from src.app.schemas.pipelines import (
     PipelineCreate,
     PipelineOut,
@@ -36,9 +35,7 @@ async def get_pipeline_endpoint(
     return await get_pipeline_or_404(service, pipeline_id)
 
 
-@router.post("/",
-             response_model=PipelineOut,
-             status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=PipelineOut, status_code=status.HTTP_201_CREATED)
 async def create_pipeline_endpoint(
     payload: PipelineCreate,
     service: PipelinesService = Depends(get_pipelines_service),
@@ -46,18 +43,18 @@ async def create_pipeline_endpoint(
     try:
         pipeline = await service.create_pipeline(payload)
     except PipelineNameAlreadyExistsError as exc:
-        raise http_400(str(exc))
+        raise http_400(str(exc)) from exc
     except ValueError as exc:
         # target_table is not in ALLOWED_TARGET_TABLES, etc.
-        raise http_400(str(exc))
+        raise http_400(str(exc)) from exc
 
     return PipelineOut.model_validate(pipeline)
 
 
-@router.get("/", response_model=List[PipelineOut])
+@router.get("/", response_model=list[PipelineOut])
 async def list_pipelines_endpoint(
     service: PipelinesService = Depends(get_pipelines_service),
-) -> List[PipelineOut]:
+) -> list[PipelineOut]:
     pipelines = await service.list_pipelines()
     return [PipelineOut.model_validate(p) for p in pipelines]
 
@@ -70,8 +67,8 @@ async def run_pipeline_endpoint(
     """Pipeline run request: status -> RUN_REQUESTED."""
     try:
         pipeline = await service.run_pipeline(str(pipeline_id))
-    except PipelineNotFoundError:
-        raise http_404("Pipeline not found")
+    except PipelineNotFoundError as exc:
+        raise http_404("Pipeline not found") from exc
 
     return PipelineOut.model_validate(pipeline)
 
@@ -84,8 +81,8 @@ async def pause_pipeline_endpoint(
     """Pipeline pause request: status -> PAUSE_REQUESTED."""
     try:
         pipeline = await service.pause_pipeline(str(pipeline_id))
-    except PipelineNotFoundError:
-        raise http_404("Pipeline not found")
+    except PipelineNotFoundError as exc:
+        raise http_404("Pipeline not found") from exc
 
     return PipelineOut.model_validate(pipeline)
 
@@ -112,9 +109,9 @@ async def update_pipeline_endpoint(
             update_data=update_data,
         )
     except PipelineIsRunningError as exc:
-        raise http_409(str(exc))
-    except PipelineNotFoundError:
-        raise http_404("Pipeline not found")
+        raise http_409(str(exc)) from exc
+    except PipelineNotFoundError as exc:
+        raise http_404("Pipeline not found") from exc
 
     return PipelineOut.model_validate(updated)
 
@@ -132,8 +129,8 @@ async def get_pipeline_runs_endpoint(
     """Get list of runs for a pipeline."""
     try:
         await service.get_pipeline(str(pipeline_id))
-    except PipelineNotFoundError:
-        raise http_404("Pipeline not found")
+    except PipelineNotFoundError as exc:
+        raise http_404("Pipeline not found") from exc
 
     runs = await service.list_pipeline_runs(
         pipeline_id=str(pipeline_id),

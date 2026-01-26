@@ -1,20 +1,31 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol
 
 
 class PipelineLike(Protocol):
-    id: str
-    name: str
-    type: str          # "SQL" | "PYTHON"
-    mode: str          # "full" | "incremental"
-    batch_size: int
-
-    source_query: str | None
-    python_module: str | None
-    target_table: str
-
-    incremental_key: str | None
-    incremental_id_key: str | None
-
-    description: str | None
+    @property
+    def id(self) -> str: ...
+    @property
+    def name(self) -> str | None: ...
+    @property
+    def description(self) -> str | None: ...
+    @property
+    def type(self) -> str: ...
+    @property
+    def mode(self) -> str: ...
+    @property
+    def enabled(self) -> bool: ...
+    @property
+    def batch_size(self) -> int | None: ...
+    @property
+    def incremental_key(self) -> str | None: ...
+    @property
+    def incremental_id_key(self) -> str | None: ...
+    @property
+    def target_table(self) -> str | None: ...
+    @property
+    def source_query(self) -> str | None: ...
+    @property
+    def tasks(self) -> Sequence[object]: ...

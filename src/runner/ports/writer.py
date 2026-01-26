@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Mapping, Protocol, Sequence, Any
-
+from collections.abc import Mapping, Sequence
+from typing import Any, Protocol
 
 Row = Mapping[str, Any]
 
@@ -9,5 +9,4 @@ Row = Mapping[str, Any]
 class Writer(Protocol):
     """Writes a batch to the sink and returns the number of written rows."""
 
-    async def write(self, rows: Sequence[Row]) -> int:
-        ...
+    async def write(self, rows: Sequence[Row]) -> int: ...

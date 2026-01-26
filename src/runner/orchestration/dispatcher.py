@@ -7,12 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.enums import PipelineStatus
 from src.app.models import EtlPipeline
-from src.runner.orchestration.executor import PipelineExecutor
+from src.runner.orchestration.executor import PipelineExecutor, short_db_error
 from src.runner.repos.pipelines import PipelinesRepo
 from src.runner.services.db_errors import is_db_disconnect
-from src.runner.services.pipeline_snapshot import (
-    PipelineSnapshot, snapshot_pipeline_with_tasks)
-from src.runner.orchestration.executor import short_db_error
+from src.runner.services.pipeline_snapshot import PipelineSnapshot, snapshot_pipeline_with_tasks
 
 logger = logging.getLogger("etl_runner")
 
@@ -34,10 +32,7 @@ class PipelineDispatcher:
         self._max_attempts = max_attempts
         self._backoff_seconds = backoff_seconds
 
-    async def dispatch(
-            self,
-            session: AsyncSession,
-            pipeline: EtlPipeline) -> None:
+    async def dispatch(self, session: AsyncSession, pipeline: EtlPipeline) -> None:
         # 1) PAUSE_REQUESTED -> PAUSED
         if pipeline.status == PipelineStatus.PAUSE_REQUESTED.value:
             await self._pipelines.apply_pause_requested(session, pipeline.id)
@@ -45,15 +40,12 @@ class PipelineDispatcher:
 
         # 2) RUN_REQUESTED -> RUNNING (claim)
         if pipeline.status == PipelineStatus.RUN_REQUESTED.value:
-            claimed = await self._pipelines.claim_run_requested(
-                session, pipeline.id)
+            claimed = await self._pipelines.claim_run_requested(session, pipeline.id)
             if claimed is None:
                 return  # claimed by another runner
 
-            snap: PipelineSnapshot = await snapshot_pipeline_with_tasks(
-                session, claimed)
-            logger.info("Pipeline snapshot: id=%s tasks=%d",
-                        snap.id, len(snap.tasks))
+            snap: PipelineSnapshot = await snapshot_pipeline_with_tasks(session, claimed)
+            logger.info("Pipeline snapshot: id=%s tasks=%d", snap.id, len(snap.tasks))
             pid = snap.id
             pname = snap.name
 
@@ -84,7 +76,11 @@ class PipelineDispatcher:
                             "DB disconnected during pipeline execution."
                             " Exit tick; recovery will handle stuck RUNNING. "
                             "id=%s name=%s attempt=%d/%d err=%r",
-                            pid, pname, attempt, self._max_attempts, exc,
+                            pid,
+                            pname,
+                            attempt,
+                            self._max_attempts,
+                            exc,
                         )
                         return
 
@@ -93,18 +89,24 @@ class PipelineDispatcher:
                             min(attempt - 1, len(self._backoff_seconds) - 1)
                         ]
                         logger.warning(
-                            "Pipeline id=%s name=%s "
-                            "attempt %d/%d FAILED: %r. Retrying in %ss",
-                            pid, pname, attempt,
-                            self._max_attempts, short_db_error(exc), delay,
+                            "Pipeline id=%s name=%s " "attempt %d/%d FAILED: %r. Retrying in %ss",
+                            pid,
+                            pname,
+                            attempt,
+                            self._max_attempts,
+                            short_db_error(exc),
+                            delay,
                         )
                         await asyncio.sleep(delay)
                         continue
 
                     logger.error(
-                        "Pipeline id=%s name=%s"
-                        " attempt %d/%d FAILED permanently: %r",
-                        pid, pname, attempt, self._max_attempts, short_db_error(exc),
+                        "Pipeline id=%s name=%s" " attempt %d/%d FAILED permanently: %r",
+                        pid,
+                        pname,
+                        attempt,
+                        self._max_attempts,
+                        short_db_error(exc),
                     )
                     await self._pipelines.fail_if_active(session, pid)
 

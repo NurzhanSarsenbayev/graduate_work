@@ -6,19 +6,12 @@ from src.app.models import EtlState
 
 
 class StateRepo:
-    async def get(
-            self,
-            session: AsyncSession,
-            pipeline_id: str) -> EtlState | None:
+    async def get(self, session: AsyncSession, pipeline_id: str) -> EtlState | None:
         return await session.get(EtlState, pipeline_id)
 
     async def upsert(
-            self,
-            session: AsyncSession,
-            pipeline_id: str,
-            *,
-            last_value: str,
-            last_id: str) -> None:
+        self, session: AsyncSession, pipeline_id: str, *, last_value: str, last_id: str
+    ) -> None:
         state = await session.get(EtlState, pipeline_id)
         if state is None:
             state = EtlState(pipeline_id=pipeline_id)

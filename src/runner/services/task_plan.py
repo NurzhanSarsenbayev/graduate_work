@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from src.runner.services.pipeline_snapshot import PipelineSnapshot
 from src.app.core.constants import is_allowed_target
+from src.runner.services.pipeline_snapshot import PipelineSnapshot
 
 
 def validate_tasks_v1(p: PipelineSnapshot) -> PipelineSnapshot:
@@ -14,22 +14,22 @@ def validate_tasks_v1(p: PipelineSnapshot) -> PipelineSnapshot:
     seen: set[int] = set()
     for t in tasks_sorted:
         if t.order_index in seen:
-            raise ValueError(f"Duplicate task "
-                             f"order_index={t.order_index} in pipeline={p.id}")
+            raise ValueError(f"Duplicate task " f"order_index={t.order_index} in pipeline={p.id}")
         seen.add(t.order_index)
 
         if not t.task_type or not t.task_type.strip():
-            raise ValueError(f"Task task_type is empty"
-                             f" (pipeline={p.id} order_index={t.order_index})")
+            raise ValueError(
+                f"Task task_type is empty" f" (pipeline={p.id} order_index={t.order_index})"
+            )
 
         if not t.body or not t.body.strip():
-            raise ValueError(f"Task body is empty"
-                             f" (pipeline={p.id} order_index={t.order_index})")
+            raise ValueError(
+                f"Task body is empty" f" (pipeline={p.id} order_index={t.order_index})"
+            )
 
     # v1: first must be SQL
     if tasks_sorted[0].task_type != "SQL":
-        raise ValueError("Tasks v1 require first"
-                         " task_type='SQL' (single reader)")
+        raise ValueError("Tasks v1 require first" " task_type='SQL' (single reader)")
 
     # v1: rest must be PYTHON
     for t in tasks_sorted[1:]:
@@ -47,9 +47,9 @@ def validate_tasks_v1(p: PipelineSnapshot) -> PipelineSnapshot:
 
     final_target = tasks_sorted[-1].target_table or p.target_table
     if not is_allowed_target(final_target):
-        raise ValueError(f"Target not allowed: {final_target!r}"
-                         f" (pipeline={p.id})")
+        raise ValueError(f"Target not allowed: {final_target!r}" f" (pipeline={p.id})")
 
     # return normalized (sorted) snapshot
     from dataclasses import replace
+
     return replace(p, tasks=tasks_sorted)

@@ -4,21 +4,17 @@ import logging
 
 from sqlalchemy import text
 
-from src.app.core.enums import PipelineStatus
 from src.runner.adapters.transformers import resolve_transformer
 from src.runner.adapters.writers import resolve_writer
-from src.runner.ports.pipeline import PipelineLike
 from src.runner.orchestration.context import ExecutionContext
+from src.runner.ports.pipeline import PipelineLike
 from src.runner.services.logctx import ctx_prefix
 from src.runner.services.pause import _pause_if_requested
 
 logger = logging.getLogger("etl_runner")
 
 
-def _wrap_query_with_limit_offset(
-        base_query: str,
-        limit: int,
-        offset: int) -> str:
+def _wrap_query_with_limit_offset(base_query: str, limit: int, offset: int) -> str:
     q = base_query.strip().rstrip(";")
     return f"SELECT * FROM ({q}) AS src LIMIT {limit} OFFSET {offset}"
 
@@ -47,38 +43,64 @@ async def run_sql_full_pipeline(
 
     logger.info(
         "%s FULL start type=%s target=%s batch_size=%s",
-        ctx_str, pipeline.type, pipeline.target_table, batch_size,
+        ctx_str,
+        pipeline.type,
+        pipeline.target_table,
+        batch_size,
     )
 
     total_read = 0
     total_written = 0
+    non_empty_batches = 0
 
     transformer = resolve_transformer(pipeline)
     writer = resolve_writer(pipeline)
 
     while True:
         batch_no += 1
-        logger.info("%s FULL batch=%d offset=%d", ctx_str, batch_no, offset)
+        current_offset = offset
+
+        logger.info("%s FULL batch=%d offset=%d", ctx_str, batch_no, current_offset)
 
         batch_query = _wrap_query_with_limit_offset(
-            pipeline.source_query, batch_size, offset
+            pipeline.source_query, batch_size, current_offset
         )
         src_result = await session.execute(text(batch_query))
-        src_rows = src_result.mappings().all()
+        src_rows_rm = src_result.mappings().all()
+        src_rows: list[dict[str, object]] = [dict(r) for r in src_rows_rm]
+
+        fetched = len(src_rows)
 
         logger.info(
             "%s FULL batch=%d fetched rows=%d",
-            ctx_str, batch_no, len(src_rows),
+            ctx_str,
+            batch_no,
+            fetched,
         )
+
+        if fetched == 0:
+            logger.info(
+                "%s FULL done non_empty_batches=%d total_read=%d total_written=%d",
+                ctx_str,
+                non_empty_batches,
+                total_read,
+                total_written,
+            )
+            break
+
+        non_empty_batches += 1
 
         if not src_rows:
             logger.info(
                 "%s FULL done batches=%d total_read=%d total_written=%d",
-                ctx_str, batch_no, total_read, total_written,
+                ctx_str,
+                batch_no,
+                total_read,
+                total_written,
             )
             break
 
-        total_read += len(src_rows)
+        total_read += fetched
 
         rows = await transformer.transform(pipeline, src_rows)
 
@@ -88,19 +110,27 @@ async def run_sql_full_pipeline(
             total_written += written_i
             logger.info(
                 "%s FULL batch=%d written=%d total_written=%d",
-                ctx_str, batch_no - 1, written_i, total_written,
+                ctx_str,
+                batch_no,
+                written_i,
+                total_written,
             )
 
         await session.commit()
 
+        # next offset: continue after the rows we actually fetched
+        offset = current_offset + fetched
+
         logger.info(
-            "%s FULL checkpoint batch=%d offset=%d total_read=%d total_written=%d",
-            ctx_str, batch_no, offset, total_read, total_written,
+            "%s FULL checkpoint batch=%d next_offset=%d total_read=%d total_written=%d",
+            ctx_str,
+            batch_no,
+            offset,
+            total_read,
+            total_written,
         )
 
         if await _pause_if_requested(ctx, pipeline.id):
             return total_read, total_written
-
-        offset += batch_size
 
     return total_read, total_written
