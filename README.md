@@ -274,21 +274,72 @@ Operational notes:
 
 ```bash
 cp .env.sample .env
-````
-
-Default values work with docker-compose.
-
-### 2. Start the system
-
-```bash
-make up
+Default values are compatible with the provided docker-compose setup.
 ```
 
-Health checks:
+### 2. Build and start the system
+```bash
+make build
+make up
+```
+This starts:
+
+- PostgreSQL on localhost:15432
+
+- ETL API on http://localhost:8100
+
+- Elasticsearch on http://localhost:9200
+
+ETL Runner as a separate worker service
+
+Alembic migrations are applied automatically on startup
+
+### 3. Health checks
+```bash
+curl http://localhost:8100/api/v1/health
+
+curl http://localhost:9200
+```
+Both endpoints should respond successfully.
+
+### 4. Create a demo pipeline (SQL → PostgreSQL)
+```bash
+make api-create-sql-film-dim \
+  NAME=film_dim \
+  BATCH=100
+```
+The command returns a pipeline id.
+
+### 5. Run the pipeline
+```bash
+make api-run ID=<pipeline_id>
+```
+
+The pipeline transitions to RUN_REQUESTED, after which the runner picks it up
+and executes it asynchronously.
+
+### 6. Observe pipeline state and runs
+```bash
+make api-get ID=<pipeline_id>
+
+make api-runs ID=<pipeline_id>
+```
+
+### 7. Verify results in PostgreSQL
+```bash
+docker compose -f infra/docker-compose.yml exec -T etl_db \
+  psql -U etl_user -d etl_demo \
+  -c "SELECT * FROM analytics.film_dim LIMIT 5;"
+```
+### 8. Stop the system
+```bash
+make down
+```
+
+To remove volumes as well:
 
 ```bash
-curl http://localhost:8000/api/v1/health
-curl http://localhost:9200
+make down-v
 ```
 
 ---
