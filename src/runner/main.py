@@ -81,10 +81,12 @@ async def main_loop(poll_interval: float = 5.0) -> NoReturn:
             await session.commit()
 
             logger.warning(
-                "Recovered %d stuck RUNNING pipeline(s):"
-                " runs->FAILED, pipelines->RUN_REQUESTED (updated=%d)",
+                "Recovery: marked RUNNING runs as"
+                " FAILED and re-queued pipelines RUN_REQUESTED."
+                " stuck=%d updated=%d pipeline_ids=%s",
                 len(pipeline_ids),
                 updated,
+                pipeline_ids[:10],
             )
         else:
             logger.info("No stuck RUNNING pipelines found (recovery not needed)")

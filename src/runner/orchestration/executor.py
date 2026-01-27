@@ -23,7 +23,7 @@ from src.runner.services.task_plan import validate_tasks_v1
 LOG_TRACEBACKS = os.getenv("ETL_LOG_TRACEBACKS", "0") == "1"
 logger = logging.getLogger("etl_runner")
 
-ERROR_CAP = 2000
+ERROR_CAP = 1000
 
 
 def _cap(s: str, limit: int = ERROR_CAP) -> str:
@@ -108,10 +108,12 @@ class PipelineExecutor:
                 )
                 raise
 
-            logger.error("Execution failed: %s err=%s", ctx_str, short_db_error(exc))
-
-            if LOG_TRACEBACKS:
-                logger.exception("Execution traceback: %s", ctx_str)
+            logger.error(
+                "Execution failed: %s err=%s",
+                ctx_str,
+                short_db_error(exc),
+                exc_info=LOG_TRACEBACKS,
+            )
 
             await session.rollback()
 

@@ -12,6 +12,7 @@ from src.runner.orchestration.context import ExecutionContext
 from src.runner.ports.pipeline import PipelineLike
 from src.runner.services.logctx import ctx_prefix
 from src.runner.services.pause import _pause_if_requested
+from src.runner.services.sql_ident import validate_sql_ident
 
 logger = logging.getLogger("etl_runner")
 
@@ -34,13 +35,18 @@ async def run_sql_incremental_pipeline(
     if not source_query:
         raise ValueError("Pipeline has empty source_query")
 
-    inc_key = pipeline.incremental_key
-    if not inc_key:
+    inc_key_raw = pipeline.incremental_key
+    if not inc_key_raw:
         raise ValueError("Incremental pipeline requires incremental_key")
 
-    batch_size = int(pipeline.batch_size or 1000)
-    id_key = (pipeline.incremental_id_key or "film_id").strip()
+    # ✅ defense-in-depth: validate identifiers used in f-strings
+    inc_key = validate_sql_ident(inc_key_raw, what="incremental_key")
+    id_key = validate_sql_ident(
+        (pipeline.incremental_id_key or "film_id"),
+        what="incremental_id_key",
+    )
 
+    batch_size = int(pipeline.batch_size or 1000)
     pid = str(pipeline.id)
     pname = str(pipeline.name or pid)
     rid = str(ctx.run_id)
