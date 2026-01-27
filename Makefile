@@ -253,6 +253,19 @@ api-create-es-film-rating-agg:
 \"source_query\":\"SELECT r.film_id AS film_id, AVG(r.rating)::float8 AS avg_rating, COUNT(*)::int AS rating_count FROM ugc.ratings r GROUP BY r.film_id\"}" \
 	| $(JSON_FMT)
 
+api-create-es-film-dim-slow:
+	curl -s -X POST $(PIPES)/ \
+	  -H "Content-Type: application/json" \
+	  -d "{\"name\":\"$(NAME)\",\
+\"description\":\"Slow ES film_dim (sleep per row)\",\
+\"type\":\"ES\",\
+\"mode\":\"full\",\
+\"enabled\":true,\
+\"batch_size\":$(BATCH),\
+\"target_table\":\"es:film_dim\",\
+\"source_query\":\"SELECT id AS film_id, title, rating FROM content.film_work CROSS JOIN LATERAL (SELECT pg_sleep($(SLEEP))) s\"}" \
+	| $(JSON_FMT)
+
 api-create-es-film-rating-agg-slow:
 	curl -s -X POST $(PIPES)/ \
 	  -H "Content-Type: application/json" \

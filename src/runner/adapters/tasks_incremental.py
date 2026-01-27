@@ -61,94 +61,107 @@ async def run_tasks_incremental(ctx: ExecutionContext, p: PipelineSnapshot) -> t
     total_read = 0
     total_written = 0
 
-    state = await state_repo.get(session, pid)
-    last_ts_raw = state.last_processed_value if state and state.last_processed_value else None
-    last_id: str | None = state.last_processed_id if state and state.last_processed_id else None
-
-    last_ts: datetime | None = datetime.fromisoformat(last_ts_raw) if last_ts_raw else None
-    if last_ts is not None and last_id is None:
-        raise ValueError("Incremental state is missing last_processed_id")
-
-    logger.info(
-        "TASKS INC start: pipeline=%s batch_size=%s inc_key=%s"
-        " id_key=%s last_ts=%s last_id=%s steps=%d target=%s",
-        pname,
-        batch_size,
-        inc_key,
-        id_key,
-        last_ts,
-        last_id,
-        len(p.tasks),
-        final_target,
-    )
-
-    while True:
-        params: dict[str, Any] = {"limit": batch_size}
-
-        if last_ts is None:
-            batch_sql = f"""
-            SELECT * FROM ({reader_sql}) AS src
-            ORDER BY src.{inc_key}, src.{id_key}
-            LIMIT :limit
-            """
-        else:
-            batch_sql = f"""
-            SELECT * FROM ({reader_sql}) AS src
-            WHERE (src.{inc_key} > :last_ts)
-               OR (src.{inc_key} = :last_ts AND src.{id_key} > :last_id)
-            ORDER BY src.{inc_key}, src.{id_key}
-            LIMIT :limit
-            """
-            params["last_ts"] = last_ts
-            params["last_id"] = last_id
-
-        res = await session.execute(text(batch_sql), params)
-
-        src_rows_rm = res.mappings().all()
-        src_rows: list[dict[str, Any]] = [dict(r) for r in src_rows_rm]
-
-        logger.info("TASKS INC batch fetched: pipeline=%s rows=%d", pname, len(src_rows))
-
-        if not src_rows:
-            logger.info("TASKS INC done: pipeline=%s (no more rows)", pname)
-            break
-
-        total_read += len(src_rows)
-
-        rows: list[dict[str, Any]] = src_rows
-        for fn in py_fns:
-            rows = await apply_transform(fn, rows)
-            if not rows:
-                break
-
-        if rows:
-            written = await writer.write(session, p_view, rows)
-            total_written += int(written or 0)
-
-        tail = src_rows[-1]
-        if inc_key not in tail:
-            raise ValueError(f"Row does not contain incremental_key={inc_key!r}")
-        if id_key not in tail:
-            raise ValueError(f"Row does not contain incremental_id_key={id_key!r}")
-
-        next_last_ts_any = tail[inc_key]
-        next_last_id = str(tail[id_key])
-
-        if next_last_ts_any is None:
-            raise ValueError("Invariant broken: incremental_key value is None in tail row")
-        if not isinstance(next_last_ts_any, datetime):
-            raise ValueError(
-                f"Invariant broken: incremental_key must "
-                f"be datetime, got {type(next_last_ts_any)!r}"
+    try:
+        try:
+            state = await state_repo.get(session, pid)
+            last_ts_raw = (
+                state.last_processed_value if state and state.last_processed_value else None
+            )
+            last_id: str | None = (
+                state.last_processed_id if state and state.last_processed_id else None
             )
 
-        last_ts = next_last_ts_any
-        last_id = next_last_id
+            last_ts: datetime | None = datetime.fromisoformat(last_ts_raw) if last_ts_raw else None
+            if last_ts is not None and last_id is None:
+                raise ValueError("Incremental state is missing last_processed_id")
 
-        await state_repo.upsert(session, pid, last_value=last_ts.isoformat(), last_id=last_id)
-        await session.commit()
+            logger.info(
+                "TASKS INC start: pipeline=%s batch_size=%s inc_key=%s"
+                " id_key=%s last_ts=%s last_id=%s steps=%d target=%s",
+                pname,
+                batch_size,
+                inc_key,
+                id_key,
+                last_ts,
+                last_id,
+                len(p.tasks),
+                final_target,
+            )
 
-        if await _pause_if_requested(ctx, pid):
+            while True:
+                params: dict[str, Any] = {"limit": batch_size}
+
+                if last_ts is None:
+                    batch_sql = f"""
+                    SELECT * FROM ({reader_sql}) AS src
+                    ORDER BY src.{inc_key}, src.{id_key}
+                    LIMIT :limit
+                    """
+                else:
+                    batch_sql = f"""
+                    SELECT * FROM ({reader_sql}) AS src
+                    WHERE (src.{inc_key} > :last_ts)
+                       OR (src.{inc_key} = :last_ts AND src.{id_key} > :last_id)
+                    ORDER BY src.{inc_key}, src.{id_key}
+                    LIMIT :limit
+                    """
+                    params["last_ts"] = last_ts
+                    params["last_id"] = last_id
+
+                res = await session.execute(text(batch_sql), params)
+
+                src_rows_rm = res.mappings().all()
+                src_rows: list[dict[str, Any]] = [dict(r) for r in src_rows_rm]
+
+                logger.info("TASKS INC batch fetched: pipeline=%s rows=%d", pname, len(src_rows))
+
+                if not src_rows:
+                    logger.info("TASKS INC done: pipeline=%s (no more rows)", pname)
+                    break
+
+                total_read += len(src_rows)
+
+                rows: list[dict[str, Any]] = src_rows
+                for fn in py_fns:
+                    rows = await apply_transform(fn, rows)
+                    if not rows:
+                        break
+
+                if rows:
+                    written = await writer.write(session, p_view, rows)
+                    total_written += int(written or 0)
+
+                tail = src_rows[-1]
+                if inc_key not in tail:
+                    raise ValueError(f"Row does not contain incremental_key={inc_key!r}")
+                if id_key not in tail:
+                    raise ValueError(f"Row does not contain incremental_id_key={id_key!r}")
+
+                next_last_ts_any = tail[inc_key]
+                next_last_id = str(tail[id_key])
+
+                if next_last_ts_any is None:
+                    raise ValueError("Invariant broken: incremental_key value is None in tail row")
+                if not isinstance(next_last_ts_any, datetime):
+                    raise ValueError(
+                        f"Invariant broken: incremental_key must "
+                        f"be datetime, got {type(next_last_ts_any)!r}"
+                    )
+
+                last_ts = next_last_ts_any
+                last_id = next_last_id
+
+                await state_repo.upsert(
+                    session, pid, last_value=last_ts.isoformat(), last_id=last_id
+                )
+                await session.commit()
+
+                if await _pause_if_requested(ctx, pid):
+                    return total_read, total_written
+
             return total_read, total_written
-
-    return total_read, total_written
+        except Exception:
+            logger.exception("Tasks incremental pipeline failed id=%s name=%s", pid, pname)
+            raise
+    finally:
+        await writer.close()

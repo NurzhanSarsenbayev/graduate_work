@@ -49,7 +49,7 @@ Request body for `POST /pipelines`.
 
 * `name` — unique pipeline name
 * `description` — optional description
-* `type` — pipeline type (currently only `"SQL"` is supported)
+* `type` — pipeline type
 * `mode` — execution mode (`"full"` or `"incremental"`)
 * `enabled` — whether the pipeline is active
 * `target_table` — sink target
@@ -347,7 +347,6 @@ The following features are planned but not yet exposed:
 * Pipeline state introspection (`/state`)
 * Reconciliation endpoints
 * Pagination and filtering for `/pipelines`
-* Dedicated health endpoint (`/health`)
 * Python-based pipelines
 * Tasks-based pipeline definitions
 

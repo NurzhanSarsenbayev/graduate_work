@@ -107,7 +107,7 @@ make api-run ID=<ID>
 make db-last-run ID=<ID>
 ```
 
-## 4) Tasks v1 (SQL reader + Python transform)
+## 3) Tasks v1 (SQL reader + Python transform)
 
 This shows how a pipeline can be defined as an execution plan (tasks), not only a single `source_query`.
 
@@ -134,7 +134,7 @@ make db-counts
 ```
 ---
 
-## 3) Pause / Resume (between batches)
+## 4) Pause / Resume (between batches)
 
 Create a slow pipeline (adds `pg_sleep` per row):
 
@@ -223,3 +223,9 @@ make es-demo
 * The runner polls the DB and atomically claims `RUN_REQUESTED → RUNNING`.
 * Incremental pipelines persist checkpoint in `etl.etl_state`.
 * Writes are idempotent (safe retries).
+
+---
+## Related docs
+
+- Detailed validation scenarios: `docs/VALIDATION_SCENARIOS.md`
+- Architecture: `docs/ARCHITECTURE.md`

@@ -56,81 +56,84 @@ async def run_sql_full_pipeline(
     transformer = resolve_transformer(pipeline)
     writer = resolve_writer(pipeline)
 
-    while True:
-        batch_no += 1
-        current_offset = offset
+    try:
+        while True:
+            batch_no += 1
+            current_offset = offset
 
-        logger.info("%s FULL batch=%d offset=%d", ctx_str, batch_no, current_offset)
+            logger.info("%s FULL batch=%d offset=%d", ctx_str, batch_no, current_offset)
 
-        batch_query = _wrap_query_with_limit_offset(
-            pipeline.source_query, batch_size, current_offset
-        )
-        src_result = await session.execute(text(batch_query))
-        src_rows_rm = src_result.mappings().all()
-        src_rows: list[dict[str, object]] = [dict(r) for r in src_rows_rm]
+            batch_query = _wrap_query_with_limit_offset(
+                pipeline.source_query, batch_size, current_offset
+            )
+            src_result = await session.execute(text(batch_query))
+            src_rows_rm = src_result.mappings().all()
+            src_rows: list[dict[str, object]] = [dict(r) for r in src_rows_rm]
 
-        fetched = len(src_rows)
+            fetched = len(src_rows)
 
-        logger.info(
-            "%s FULL batch=%d fetched rows=%d",
-            ctx_str,
-            batch_no,
-            fetched,
-        )
-
-        if fetched == 0:
             logger.info(
-                "%s FULL done non_empty_batches=%d total_read=%d total_written=%d",
+                "%s FULL batch=%d fetched rows=%d",
                 ctx_str,
-                non_empty_batches,
+                batch_no,
+                fetched,
+            )
+
+            if fetched == 0:
+                logger.info(
+                    "%s FULL done non_empty_batches=%d total_read=%d total_written=%d",
+                    ctx_str,
+                    non_empty_batches,
+                    total_read,
+                    total_written,
+                )
+                break
+
+            non_empty_batches += 1
+
+            if not src_rows:
+                logger.info(
+                    "%s FULL done batches=%d total_read=%d total_written=%d",
+                    ctx_str,
+                    batch_no,
+                    total_read,
+                    total_written,
+                )
+                break
+
+            total_read += fetched
+
+            rows = await transformer.transform(pipeline, src_rows)
+
+            if rows:
+                written = await writer.write(session, pipeline, rows)
+                written_i = int(written or 0)
+                total_written += written_i
+                logger.info(
+                    "%s FULL batch=%d written=%d total_written=%d",
+                    ctx_str,
+                    batch_no,
+                    written_i,
+                    total_written,
+                )
+
+            await session.commit()
+
+            # next offset: continue after the rows we actually fetched
+            offset = current_offset + fetched
+
+            logger.info(
+                "%s FULL checkpoint batch=%d next_offset=%d total_read=%d total_written=%d",
+                ctx_str,
+                batch_no,
+                offset,
                 total_read,
                 total_written,
             )
-            break
 
-        non_empty_batches += 1
+            if await _pause_if_requested(ctx, pipeline.id):
+                return total_read, total_written
 
-        if not src_rows:
-            logger.info(
-                "%s FULL done batches=%d total_read=%d total_written=%d",
-                ctx_str,
-                batch_no,
-                total_read,
-                total_written,
-            )
-            break
-
-        total_read += fetched
-
-        rows = await transformer.transform(pipeline, src_rows)
-
-        if rows:
-            written = await writer.write(session, pipeline, rows)
-            written_i = int(written or 0)
-            total_written += written_i
-            logger.info(
-                "%s FULL batch=%d written=%d total_written=%d",
-                ctx_str,
-                batch_no,
-                written_i,
-                total_written,
-            )
-
-        await session.commit()
-
-        # next offset: continue after the rows we actually fetched
-        offset = current_offset + fetched
-
-        logger.info(
-            "%s FULL checkpoint batch=%d next_offset=%d total_read=%d total_written=%d",
-            ctx_str,
-            batch_no,
-            offset,
-            total_read,
-            total_written,
-        )
-
-        if await _pause_if_requested(ctx, pipeline.id):
-            return total_read, total_written
-
-    return total_read, total_written
+        return total_read, total_written
+    finally:
+        await writer.close()
