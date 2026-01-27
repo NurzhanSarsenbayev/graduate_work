@@ -23,6 +23,8 @@ class Writer(Protocol):
         rows: list[dict],
     ) -> int: ...
 
+    async def close(self) -> None: ...
+
 
 # ----------------------------
 # Postgres
@@ -89,6 +91,9 @@ class PostgresWriter:
 
         raise ValueError(f"Unsupported target_table" f" for PostgresWriter: {target}")
 
+    async def close(self) -> None:
+        pass
+
 
 # ----------------------------
 # Elasticsearch
@@ -134,6 +139,27 @@ class ElasticsearchWriter:
 
     def __init__(self, cfg: ESConfig) -> None:
         self._cfg = cfg
+        self._client: AsyncElasticsearch | None = None
+        self._ensured: set[str] = set()
+
+    def _auth(self) -> tuple[str, str] | None:
+        if self._cfg.user:
+            return (self._cfg.user, self._cfg.password or "")
+        return None
+
+    async def _get_client(self) -> AsyncElasticsearch:
+        if self._client is None:
+            self._client = AsyncElasticsearch(
+                hosts=[self._cfg.url],
+                basic_auth=self._auth(),
+                request_timeout=self._cfg.timeout,
+            )
+        return self._client
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
 
     def _index_from_target(self, target_table: str) -> str:
         # target_table like "es:film_dim"
@@ -196,49 +222,39 @@ class ElasticsearchWriter:
         index = self._index_from_target(target)
         id_field = self._id_field_for_index(index)
 
-        auth = None
-        if self._cfg.user:
-            auth = (self._cfg.user, self._cfg.password or "")
+        client = await self._get_client()
 
-        client = AsyncElasticsearch(
-            hosts=[self._cfg.url],
-            basic_auth=auth,
-            request_timeout=self._cfg.timeout,
-        )
-
-        try:
+        if index not in self._ensured:
             await self._ensure_index(client, index)
+            self._ensured.add(index)
 
-            ops: list[dict] = []
-            for raw in rows:
-                r = _normalize_row(raw)
+        ops: list[dict] = []
+        for raw in rows:
+            r = _normalize_row(raw)
 
-                if id_field not in r:
-                    raise ValueError(
-                        f"ES writer expects field {id_field!r} in row. "
-                        f"Row keys={list(r.keys())}"
-                    )
+            if id_field not in r:
+                raise ValueError(
+                    f"ES writer expects field {id_field!r} in row. " f"Row keys={list(r.keys())}"
+                )
 
-                _id = str(r[id_field])
+            _id = str(r[id_field])
 
-                ops.append({"update": {"_index": index, "_id": _id}})
-                ops.append({"doc": r, "doc_as_upsert": True})
+            ops.append({"update": {"_index": index, "_id": _id}})
+            ops.append({"doc": r, "doc_as_upsert": True})
 
-            resp = await client.bulk(operations=ops, refresh=False)
+        resp = await client.bulk(operations=ops, refresh=False)
 
-            if resp.get("errors"):
-                items = resp.get("items") or []
-                first_err = None
-                for it in items:
-                    v = it.get("update") or it.get("index") or it.get("create") or it.get("delete")
-                    if v and v.get("error"):
-                        first_err = v
-                        break
-                raise RuntimeError(f"Elasticsearch bulk errors=True." f" first_error={first_err!r}")
+        if resp.get("errors"):
+            items = resp.get("items") or []
+            first_err = None
+            for it in items:
+                v = it.get("update") or it.get("index") or it.get("create") or it.get("delete")
+                if v and v.get("error"):
+                    first_err = v
+                    break
+            raise RuntimeError(f"Elasticsearch bulk errors=True." f" first_error={first_err!r}")
 
-            return len(rows)
-        finally:
-            await client.close()
+        return len(rows)
 
 
 # ----------------------------

@@ -54,39 +54,42 @@ async def run_tasks_full(ctx: ExecutionContext, p: PipelineSnapshot) -> tuple[in
     total_read = 0
     total_written = 0
 
-    logger.info(
-        "TASKS FULL start: pipeline=%s batch_size=%s steps=%d target=%s",
-        p.name,
-        batch_size,
-        len(p.tasks),
-        final_target,
-    )
+    try:
+        logger.info(
+            "TASKS FULL start: pipeline=%s batch_size=%s steps=%d target=%s",
+            p.name,
+            batch_size,
+            len(p.tasks),
+            final_target,
+        )
 
-    while True:
-        batch_query = _wrap_query_with_limit_offset(reader_sql, batch_size, offset)
-        res = await session.execute(text(batch_query))
-        rows_rm = res.mappings().all()
-        rows: list[dict[str, Any]] = [dict(r) for r in rows_rm]
+        while True:
+            batch_query = _wrap_query_with_limit_offset(reader_sql, batch_size, offset)
+            res = await session.execute(text(batch_query))
+            rows_rm = res.mappings().all()
+            rows: list[dict[str, Any]] = [dict(r) for r in rows_rm]
 
-        if not rows:
-            break
-
-        total_read += len(rows)
-
-        for fn in py_fns:
-            rows = await apply_transform(fn, rows)
             if not rows:
                 break
 
-        if rows:
-            written = await writer.write(session, p_view, rows)
-            total_written += int(written or 0)
+            total_read += len(rows)
 
-        await session.commit()
+            for fn in py_fns:
+                rows = await apply_transform(fn, rows)
+                if not rows:
+                    break
 
-        if await _pause_if_requested(ctx, p.id):
-            return total_read, total_written
+            if rows:
+                written = await writer.write(session, p_view, rows)
+                total_written += int(written or 0)
 
-        offset += batch_size
+            await session.commit()
 
-    return total_read, total_written
+            if await _pause_if_requested(ctx, p.id):
+                return total_read, total_written
+
+            offset += batch_size
+
+        return total_read, total_written
+    finally:
+        await writer.close()
