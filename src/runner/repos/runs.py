@@ -12,6 +12,8 @@ from src.runner.services.time_utils import utcnow_naive
 
 logger = logging.getLogger("etl_runner")
 
+MAX_ERR_LEN = 1000
+
 
 class RunsRepo:
     async def start_run(self, session: AsyncSession, *, pipeline_id: str) -> str:
@@ -66,7 +68,7 @@ class RunsRepo:
             .values(
                 status=RunStatus.FAILED.value,
                 finished_at=utcnow_naive(),
-                error_message=error_message[:1000],
+                error_message=error_message[:MAX_ERR_LEN],
             )
         )
         await session.execute(stmt)
@@ -85,8 +87,7 @@ class RunsRepo:
             .values(
                 status=RunStatus.FAILED.value,
                 finished_at=utcnow_naive(),
-                error_message="recovered after runner crash",
+                error_message="recovered: runner crashed while RUNNING",
             )
         )
-        await session.commit()
         return len(pipeline_ids)

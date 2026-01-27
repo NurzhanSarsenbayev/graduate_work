@@ -86,23 +86,20 @@ class PipelinesRepo:
         await session.commit()
         return len(ids)
 
-    async def mark_run_requested_bulk(self, session, pipeline_ids: list[str]) -> int:
-        if not pipeline_ids:
+    async def mark_run_requested_bulk(
+        self, session: AsyncSession, pipeline_ids: Sequence[str]
+    ) -> int:
+        ids = list(pipeline_ids)
+        if not ids:
             return 0
 
-        res = await session.execute(
-            text("""
-                UPDATE etl.etl_pipelines
-                   SET status = :new_status
-                 WHERE id = ANY(:ids)
-                   AND status = :old_status
-            """),
-            {
-                "ids": pipeline_ids,
-                "new_status": PipelineStatus.RUN_REQUESTED.value,
-                "old_status": PipelineStatus.RUNNING.value,
-            },
+        stmt = (
+            update(EtlPipeline)
+            .where(EtlPipeline.id.in_(ids))
+            .where(EtlPipeline.status == PipelineStatus.RUNNING.value)
+            .values(status=PipelineStatus.RUN_REQUESTED.value)
         )
+        res = await session.execute(stmt)
         return int(res.rowcount or 0)
 
     async def finish_running_to_idle(self, session: AsyncSession, pipeline_id: str) -> bool:

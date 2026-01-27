@@ -382,3 +382,13 @@ es-demo:
 
 pg-demo:
 	@$(PSQL) -c "SELECT film_id,title FROM analytics.film_dim;"
+
+db-sql:
+	docker exec -i $(DB_CONT) psql -U etl_user -d etl_demo -c "$(SQL)"
+
+db-last-run-msg:
+	docker exec -i $(DB_CONT) psql -U etl_user -d etl_demo -c "\
+SELECT id,status,length(error_message) AS len,left(error_message,200) AS head \
+FROM etl.etl_runs \
+WHERE pipeline_id='$(ID)' \
+ORDER BY started_at DESC LIMIT 1;"
