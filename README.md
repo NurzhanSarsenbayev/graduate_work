@@ -287,8 +287,8 @@ Wait until services become healthy.
 Health checks:
 
 ```bash
-curl http://localhost:8100/api/v1/health
-curl http://localhost:9200
+curl http://localhost:${API_PORT:-8100}/api/v1/health
+curl http://localhost:${ES_PORT:-9200}
 ```
 
 ### 3. Create and run a demo pipeline
@@ -443,7 +443,7 @@ A complete hands-on demo covering:
 
 The demo is fully automated via the Makefile and takes ~5–7 minutes to complete:
 
-👉 **See [`DEMO.md`](DEMO.md)**
+👉 **See [`docs/DEMO.md`](DEMO.md)**
 
 For deeper validation scenarios and edge cases, see `docs/DEMO.md`.
 

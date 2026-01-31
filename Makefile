@@ -1,5 +1,12 @@
 COMPOSE = docker compose -f infra/docker-compose.yml
-API_URL = http://127.0.0.1:8100
+
+-include .env
+# Allow overriding ports (and optionally read from .env)
+API_PORT ?= 8100
+ES_PORT ?= 9200
+PG_PORT ?= 15432
+
+API_URL = http://127.0.0.1:$(API_PORT)
 PIPES   = $(API_URL)/api/v1/pipelines
 DB_CONT = infra-etl_db-1
 PSQL    = docker exec -i $(DB_CONT) psql -U etl_user -d etl_demo
@@ -151,7 +158,7 @@ api-create-sql-film-dim:
 \"enabled\":true,\
 \"batch_size\":$(BATCH),\
 \"target_table\":\"analytics.film_dim\",\
-\"source_query\":\"SELECT id AS film_id, title, rating FROM content.film_work\"}" \
+\"source_query\":\"SELECT id AS film_id, title, rating FROM content.film_work ORDER BY id\"}" \
 	| $(JSON_FMT)
 
 api-create-sql-film-dim-slow:
@@ -164,7 +171,7 @@ api-create-sql-film-dim-slow:
 \"enabled\":true,\
 \"batch_size\":$(BATCH),\
 \"target_table\":\"analytics.film_dim\",\
-\"source_query\":\"SELECT id AS film_id, title, rating FROM content.film_work CROSS JOIN LATERAL (SELECT pg_sleep($(SLEEP))) s\"}" \
+\"source_query\":\"SELECT id AS film_id, title, rating FROM content.film_work CROSS JOIN LATERAL (SELECT pg_sleep($(SLEEP))) s ORDER BY id\"}" \
 	| $(JSON_FMT)
 
 api-create-sql-film-dim-inc:
@@ -198,7 +205,7 @@ api-create-python-film-dim:
 \"batch_size\":$(BATCH),\
 \"target_table\":\"analytics.film_dim\",\
 \"python_module\":\"src.pipelines.python_tasks.demo_film_dim\",\
-\"source_query\":\"SELECT id AS film_id, title, rating FROM content.film_work\"}" \
+\"source_query\":\"SELECT id AS film_id, title, rating FROM content.film_work ORDER BY id\"}" \
 	| $(JSON_FMT)
 
 api-create-sql-film-rating-agg:
@@ -211,7 +218,7 @@ api-create-sql-film-rating-agg:
 \"enabled\":true,\
 \"batch_size\":$(BATCH),\
 \"target_table\":\"analytics.film_rating_agg\",\
-\"source_query\":\"SELECT r.film_id AS film_id, AVG(r.rating)::float8 AS avg_rating, COUNT(*)::int AS rating_count FROM ugc.ratings r GROUP BY r.film_id\"}" \
+\"source_query\":\"SELECT r.film_id AS film_id, AVG(r.rating)::float8 AS avg_rating, COUNT(*)::int AS rating_count FROM ugc.ratings r GROUP BY r.film_id ORDER BY r.film_id\"}" \
 	| $(JSON_FMT)
 
 api-create-sql-film-rating-agg-slow:
@@ -224,7 +231,7 @@ api-create-sql-film-rating-agg-slow:
 \"enabled\":true,\
 \"batch_size\":$(BATCH),\
 \"target_table\":\"analytics.film_rating_agg\",\
-\"source_query\":\"SELECT * FROM (SELECT r.film_id AS film_id, AVG(r.rating)::float8 AS avg_rating, COUNT(*)::int AS rating_count FROM ugc.ratings r GROUP BY r.film_id) q CROSS JOIN LATERAL (SELECT pg_sleep($(SLEEP))) s\"}" \
+\"source_query\":\"SELECT q.film_id, q.avg_rating, q.rating_count FROM (SELECT r.film_id AS film_id, AVG(r.rating)::float8 AS avg_rating, COUNT(*)::int AS rating_count FROM ugc.ratings r GROUP BY r.film_id) q CROSS JOIN LATERAL (SELECT pg_sleep($(SLEEP))) s ORDER BY q.film_id\"}" \
 	| $(JSON_FMT)
 
 api-create-es-film-dim:
@@ -237,7 +244,7 @@ api-create-es-film-dim:
 \"enabled\":true,\
 \"batch_size\":$(BATCH),\
 \"target_table\":\"es:film_dim\",\
-\"source_query\":\"SELECT id AS film_id, title, rating FROM content.film_work\"}" \
+\"source_query\":\"SELECT id AS film_id, title, rating FROM content.film_work ORDER BY id\"}" \
 	| $(JSON_FMT)
 
 api-create-es-film-rating-agg:
@@ -250,7 +257,7 @@ api-create-es-film-rating-agg:
 \"enabled\":true,\
 \"batch_size\":$(BATCH),\
 \"target_table\":\"es:film_rating_agg\",\
-\"source_query\":\"SELECT r.film_id AS film_id, AVG(r.rating)::float8 AS avg_rating, COUNT(*)::int AS rating_count FROM ugc.ratings r GROUP BY r.film_id\"}" \
+\"source_query\":\"SELECT r.film_id AS film_id, AVG(r.rating)::float8 AS avg_rating, COUNT(*)::int AS avg_rating, COUNT(*)::int AS rating_count FROM ugc.ratings r GROUP BY r.film_id ORDER BY r.film_id\"}" \
 	| $(JSON_FMT)
 
 api-create-es-film-dim-slow:
@@ -263,7 +270,7 @@ api-create-es-film-dim-slow:
 \"enabled\":true,\
 \"batch_size\":$(BATCH),\
 \"target_table\":\"es:film_dim\",\
-\"source_query\":\"SELECT id AS film_id, title, rating FROM content.film_work CROSS JOIN LATERAL (SELECT pg_sleep($(SLEEP))) s\"}" \
+\"source_query\":\"SELECT id AS film_id, title, rating FROM content.film_work CROSS JOIN LATERAL (SELECT pg_sleep($(SLEEP))) s ORDER BY id\"}" \
 	| $(JSON_FMT)
 
 api-create-es-film-rating-agg-slow:
@@ -276,7 +283,7 @@ api-create-es-film-rating-agg-slow:
 \"enabled\":true,\
 \"batch_size\":$(BATCH),\
 \"target_table\":\"es:film_rating_agg\",\
-\"source_query\":\"SELECT * FROM (SELECT r.film_id AS film_id, AVG(r.rating)::float8 AS avg_rating, COUNT(*)::int AS rating_count FROM ugc.ratings r GROUP BY r.film_id) q CROSS JOIN LATERAL (SELECT pg_sleep($(SLEEP))) s\"}" \
+\"source_query\":\"SELECT q.film_id, q.avg_rating, q.rating_count FROM (SELECT r.film_id AS film_id, AVG(r.rating)::float8 AS avg_rating, COUNT(*)::int AS rating_count FROM ugc.ratings r GROUP BY r.film_id) q CROSS JOIN LATERAL (SELECT pg_sleep($(SLEEP))) s ORDER BY q.film_id\"}" \
 	| $(JSON_FMT)
 
 api-create-tasks-film-dim-full:
@@ -289,7 +296,7 @@ api-create-tasks-film-dim-full:
 \"enabled\":true,\
 \"batch_size\":2,\
 \"target_table\":\"analytics.film_dim\",\
-\"source_query\":\"SELECT 1\"}" | $(JSON_FMT)
+\"source_query\":\"SELECT gs AS film_id FROM generate_series(1, 10) gs ORDER BY gs\"}" | $(JSON_FMT)
 
 api-create-tasks-film-dim-inc:
 	@curl -s -X POST $(PIPES)/ \

@@ -10,7 +10,7 @@ This demo shows the core features in ~5–7 minutes:
 - Retry with backoff
 - Postgres and Elasticsearch sinks
 
-> For deeper validation scenarios, see `docs/demo_checks.md`.
+> For deeper validation scenarios, see `docs/VALIDATION_SCENARIOS.md`.
 
 ---
 

@@ -12,13 +12,9 @@ from src.runner.adapters.tasks_python import apply_transform, load_python_transf
 from src.runner.adapters.writers import resolve_writer
 from src.runner.orchestration.context import ExecutionContext
 from src.runner.services.pipeline_snapshot import PipelineSnapshot
+from src.runner.services.sql_pagination import apply_limit_offset_keep_order
 
 logger = logging.getLogger("etl_runner")
-
-
-def _wrap_query_with_limit_offset(base_query: str, limit: int, offset: int) -> str:
-    q = base_query.strip().rstrip(";")
-    return f"SELECT * FROM ({q}) AS src LIMIT {limit} OFFSET {offset}"
 
 
 async def _pause_if_requested(ctx: ExecutionContext, pipeline_id: str) -> bool:
@@ -64,7 +60,11 @@ async def run_tasks_full(ctx: ExecutionContext, p: PipelineSnapshot) -> tuple[in
         )
 
         while True:
-            batch_query = _wrap_query_with_limit_offset(reader_sql, batch_size, offset)
+            batch_query = apply_limit_offset_keep_order(
+                reader_sql,
+                limit=batch_size,
+                offset=offset,
+            )
             res = await session.execute(text(batch_query))
             rows_rm = res.mappings().all()
             rows: list[dict[str, Any]] = [dict(r) for r in rows_rm]
@@ -88,7 +88,7 @@ async def run_tasks_full(ctx: ExecutionContext, p: PipelineSnapshot) -> tuple[in
             if await _pause_if_requested(ctx, p.id):
                 return total_read, total_written
 
-            offset += batch_size
+            offset += len(rows)
 
         return total_read, total_written
     finally:

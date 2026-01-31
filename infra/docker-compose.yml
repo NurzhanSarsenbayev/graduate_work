@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: etl_user
       POSTGRES_PASSWORD: etl_password
     ports:
-      - "15432:5432"
+      - "${PG_PORT:-15432}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d
@@ -25,7 +25,7 @@ services:
       - xpack.security.enabled=false
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
     ports:
-      - "9200:9200"
+      - "${ES_PORT:-9200}:9200"
     volumes:
       - es_data:/usr/share/elasticsearch/data
     healthcheck:
@@ -60,7 +60,7 @@ services:
       etl_migrations:
         condition: service_completed_successfully
     ports:
-      - "8100:8000"
+      - "${API_PORT:-8100}:8000"
     networks:
       - etl_net
 
